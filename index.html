@@ -135,12 +135,12 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 <body>
 <div id="err"></div>
 
-<!-- ══ LOGIN ══ -->
+<!-- ══ LOGIN (required for everyone) ══ -->
 <div id="boot">
   <div class="card">
     <h3 style="font-size:20px;margin-bottom:4px">SEUS — เข้าสู่ระบบ</h3>
-    <p style="font-size:13px;color:var(--ink-3);margin-bottom:16px">
-      ใช้บัญชีกลางของบริษัท · ทำครั้งเดียวต่อเครื่อง</p>
+    <p style="font-size:13px;color:var(--ink-3);margin-bottom:14px">
+      ล็อกอินครั้งเดียวต่อเครื่อง — แอปจะจำไว้ให้</p>
 
     <label class="fl">อีเมล</label>
     <input class="tx" id="lem" type="email" autocomplete="username" placeholder="staff@seus.co.th">
@@ -151,15 +151,18 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
     <div class="toast" id="btoast"></div>
 
     <p style="font-size:12px;color:var(--ink-3);margin-top:14px;line-height:1.6">
-      <b style="color:var(--rose)">สำคัญ:</b> ต้อง <b>ปิด Anonymous sign-in</b> ใน Firebase Console<br>
-      ไม่งั้นใครก็ตามที่เจอ config นี้ (repo เป็น public) จะเข้ามาอ่านใบหน้าพนักงานได้ทั้งหมด<br>
-      ดู <b>FIREBASE-SETUP-TH.md</b></p>
+      <b style="color:var(--rose)">ต้องปิด Anonymous sign-in ใน Firebase Console</b><br>
+      config อยู่ใน repo สาธารณะ — ถ้าเปิด Anonymous ไว้ ใครก็ตามที่เจอ config
+      จะเข้ามาอ่านใบหน้าและประวัติพิกัดของพนักงานได้ทั้งหมด</p>
   </div>
 </div>
 
 <div class="hero">
   <div><h1>ลงเวลาด้วยใบหน้า</h1><div class="sub">SEUS Engineering Co., Ltd.</div></div>
-  <div class="cloud" id="cloud">● กำลังเชื่อมต่อ…</div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="cloud" id="cloud">● กำลังเชื่อมต่อ…</div>
+    <button class="btn hide" id="outbtn" onclick="doLogout()" style="background:rgba(255,255,255,.22);color:#fff;box-shadow:none">ออกจากระบบ</button>
+  </div>
 </div>
 
 <nav>
@@ -168,6 +171,9 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   <button id="t-f" aria-selected="false" onclick="tab('f')">ลงทะเบียนใบหน้า</button>
   <button id="t-p" aria-selected="false" onclick="tab('p')">โครงการ + พิกัด</button>
   <button id="t-t" aria-selected="false" onclick="tab('t')">ตารางเวลา</button>
+  <button id="t-m" aria-selected="false" onclick="tab('m')" class="hide">บัญชี / การเงิน</button>
+  <button id="t-s" aria-selected="false" onclick="tab('s')" class="hide">สลิปเงินเดือน</button>
+  <button id="t-u" aria-selected="false" onclick="tab('u')" class="hide">สิทธิ์ผู้ใช้</button>
 </nav>
 
 <main>
@@ -323,9 +329,10 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, setPersistence, browserLocalPersistence }
+import { getAuth, signInWithEmailAndPassword, signOut,
+         onAuthStateChanged, setPersistence, browserLocalPersistence }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, serverTimestamp }
+import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -351,7 +358,23 @@ import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, s
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v6';
+const VERSION='v9';
+
+/* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
+   These four addresses are the root of trust. They are ALSO written into the
+   Firestore Rules, and the Rules are what actually enforce this — the list here
+   only decides which tabs are drawn.
+
+   Hiding a tab is decoration. If the Rules are wrong, a worker with the shared
+   staff login can read every salary in the company from the browser console,
+   and no amount of CSS will stop him. Get the Rules right; treat this array as
+   a convenience, never as a control. */
+const ADMINS = [
+  'arthapol.yindee.ay@gmail.com',
+  'arnut.lek@gmail.com',
+  'sasithorn.ons@gmail.com',
+  'dakanda.kialon@gmail.com',
+];
 
 const SCH={start:480,end:1020,brk:60,grace:15,std:480};
 const THRESHOLD=0.50;
@@ -377,6 +400,11 @@ const FIREBASE_CONFIG = {
 let db=null, auth=null, uid=null;
 let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
+let ME=null, MYROLE='staff', PAY={}, LOANS=[], ADVANCES=[], OTAPPROVE={}, ROLES=[];
+const isAdmin = () => !!ME && ADMINS.includes(ME.toLowerCase());
+const canSeeMoney = () => isAdmin() || MYROLE==='hr' || MYROLE==='accountant';
+const canEditMoney = () => isAdmin() || MYROLE==='accountant';
+
 let GPS=null, autoProj=null, map=null, marker=null, circle=null, mapPid=null, mapLL=null;
 
 /* ── Firestore does not support nested arrays. ──────────────────────────────
@@ -412,7 +440,27 @@ function log(msg, kind){
   el.scrollTop = el.scrollHeight;
 }
 
-/* ── Auth: one shared company account ── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONE DOOR. Everyone logs in.
+
+   We considered letting workers straight through with anonymous sign-in — one
+   tap, no password, no friction. It is the better experience, and it is the
+   wrong trade here.
+
+   This app's Firebase config sits in a PUBLIC repository. With anonymous
+   sign-in enabled, anyone who finds that config can also sign in, and then read
+   the roster, the 128-number face vector of every man in the company, and every
+   punch with its GPS coordinate. Salaries would still be shut — an anonymous
+   session has no email, so the Rules refuse it — but a worker's face and his
+   movements are not a smaller thing than his salary. They are a larger one.
+
+   So: a password. Once per phone, and the app remembers it. That is the whole
+   cost, and it buys a door that is actually closed.
+
+   ⚠️ ANONYMOUS SIGN-IN MUST BE DISABLED IN THE FIREBASE CONSOLE.
+   Leaving it on defeats every line of this file.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 window.doLogin=async()=>{
   const em=document.getElementById('lem').value.trim();
   const pw=document.getElementById('lpw').value;
@@ -420,32 +468,63 @@ window.doLogin=async()=>{
   if(!em||!pw){ t.className='toast no'; t.textContent='กรอกอีเมลและรหัสผ่าน'; return; }
   document.getElementById('blogin').disabled=true;
   try{
-    await setPersistence(auth, browserLocalPersistence);   // stay signed in on this phone
+    await setPersistence(auth, browserLocalPersistence);   // one login per phone, ever
     await signInWithEmailAndPassword(auth, em, pw);
   }catch(e){
     t.className='toast no';
     t.textContent = e.code==='auth/invalid-credential' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
                   : e.code==='auth/operation-not-allowed' ? 'ยังไม่ได้เปิด Email/Password ใน Firebase Console'
+                  : e.code==='auth/too-many-requests' ? 'พยายามหลายครั้งเกินไป — รอสักครู่'
                   : 'เข้าสู่ระบบไม่ได้: '+e.message;
-    document.getElementById('blogin').disabled=false;
-  }
+  }finally{ document.getElementById('blogin').disabled=false; }
+};
+
+window.doLogout=async()=>{
+  if(!confirm('ออกจากระบบ?')) return;
+  await signOut(auth);
+  location.reload();
 };
 
 function boot(){
   const app=initializeApp(FIREBASE_CONFIG);
   auth=getAuth(app);
   db=getFirestore(app);
-  onAuthStateChanged(auth, u=>{
-    if(u){
-      uid=u.uid;
-      document.getElementById('boot').classList.add('hide');
-      document.getElementById('cloud').textContent='● '+(u.email||'เชื่อมต่อแล้ว')+' · '+VERSION;
-      listen();
-      detectProject();
-    }else{
+
+  onAuthStateChanged(auth, async u=>{
+    if(!u){
       document.getElementById('boot').classList.remove('hide');
       const b=document.getElementById('blogin'); if(b) b.disabled=false;
+      return;
     }
+
+    uid=u.uid;
+    ME=(u.email||'').toLowerCase();
+
+    /* Admin is decided by the hardcoded list — the same list the Rules check.
+       Nobody promotes himself by editing a document. */
+    if(isAdmin()) MYROLE='admin';
+    else{
+      try{
+        const r=await getDoc(doc(db,'roles',ME));
+        MYROLE = r.exists() ? (r.data().role||'staff') : 'staff';
+      }catch(e){ MYROLE='staff'; }
+    }
+
+    document.getElementById('boot').classList.add('hide');
+    document.getElementById('cloud').textContent='● '+ME+' · '+MYROLE+' · '+VERSION;
+    document.getElementById('outbtn').classList.remove('hide');
+
+    /* Tabs are hidden for tidiness. The RULES are what protect the data. */
+    const staffOnly = MYROLE==='staff';
+    $('t-d').classList.toggle('hide', staffOnly);
+    $('t-p').classList.toggle('hide', staffOnly);
+    $('t-m').classList.toggle('hide', !canSeeMoney());
+    $('t-s').classList.toggle('hide', !canSeeMoney());
+    $('t-u').classList.toggle('hide', !isAdmin());
+    if($('pmonth')) $('pmonth').value = dstr(new Date()).slice(0,7);
+
+    listen();
+    detectProject();
   });
 }
 
@@ -460,6 +539,29 @@ function listen(){
     PUNCH = s.docs.map(d=>({id:d.id, ...d.data()}));
     all();
   }, e=>showErr('อ่าน punches ไม่ได้: '+e.message));
+
+  /* These reads FAIL for a normal worker — and that failure is the Rules doing
+     their job. We swallow it silently rather than showing him a scary error for
+     data he was never meant to see. */
+  if(canSeeMoney()){
+    onSnapshot(collection(db,'payroll'), s=>{
+      PAY={}; s.docs.forEach(d=>PAY[d.id]=d.data()); all();
+    }, ()=>{});
+    onSnapshot(collection(db,'loans'), s=>{
+      LOANS=s.docs.map(d=>({id:d.id,...d.data()})); all();
+    }, ()=>{});
+    onSnapshot(collection(db,'advances'), s=>{
+      ADVANCES=s.docs.map(d=>({id:d.id,...d.data()})); all();
+    }, ()=>{});
+    onSnapshot(collection(db,'otapprovals'), s=>{
+      OTAPPROVE={}; s.docs.forEach(d=>OTAPPROVE[d.id]=d.data()); all();
+    }, ()=>{});
+  }
+  if(isAdmin()){
+    onSnapshot(collection(db,'roles'), s=>{
+      ROLES=s.docs.map(d=>d.data()); roleList();
+    }, ()=>{});
+  }
 
   onSnapshot(collection(db,'projects'), s=>{
     PROJ = s.docs.map(d=>({id:d.id, ...d.data()}));
@@ -982,6 +1084,371 @@ function readRoster(f){
   r.readAsArrayBuffer(f);
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MONEY.
+
+   Three rules carried over from the full system design, and none of them are
+   negotiable just because this is a web app:
+
+   1. OT IS PAID FROM AN APPROVAL, NOT FROM A PUNCH.
+      A punch is a sensor. Sensors fail. A man who forgets to punch out has zero
+      overtime on the clock, and auto-payment would pay him nothing — he finds
+      out on the 30th, and after that neither he nor anyone he tells trusts the
+      system again. The clock's figure is EVIDENCE. It sits next to the approved
+      figure so the approver can see the gap and decide with his name on it.
+
+   2. SSO IS CAPPED PER MONTH, ON BOTH SIDES.
+      750 baht, employee and employer. The three retirees and the three directors
+      are exempt — and the EMPLOYER half must be zeroed too. Zeroing only the
+      deduction while still accruing the company's 5% inflates project cost for
+      ever, and nobody audits a number that only ever grows.
+
+   3. AN EMPTY CHILDREN FIELD IS NOT "SAFE".
+      It over-withholds. A man with two children and a non-earning spouse loses
+      120,000 baht of annual allowance. He gets it back when he files in March.
+      He needed it in November.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const BRACKETS=[[0,150000,0],[150000,300000,5],[300000,500000,10],[500000,750000,15],
+                [750000,1000000,20],[1000000,2000000,25],[2000000,5000000,30],[5000000,null,35]];
+
+function annualTax(gross, children, spouse){
+  const allow = 60000 + (spouse?60000:0) + 30000*Math.min(children||0,3);
+  let t = Math.max(0, gross - Math.min(gross*0.5, 100000) - allow), tax=0;
+  for(const [lo,hi,r] of BRACKETS){ if(t<=lo) break; tax += ((hi===null?t:Math.min(t,hi))-lo)*r/100; }
+  return tax;
+}
+function ssoOf(gross, exempt){
+  if(exempt) return 0;
+  return Math.min(Math.max(Math.min(gross,15000),1650)*0.05, 750);
+}
+const alwTotal = pr => Object.values(pr?.alw||{}).reduce((a,b)=>a+(+b||0),0);
+function grossOf(pr, daysPresent){
+  if(!pr) return 0;
+  const base = pr.basis==='daily' ? (+pr.base||0)*(daysPresent||0) : (+pr.base||0);
+  return base + alwTotal(pr);
+}
+/* OT and absence share ONE hourly rate. If they did not, a man could work an
+   hour of overtime, be absent for an hour, and end the month up or down —
+   indefensible in both directions. */
+function hourlyOf(pr){
+  if(!pr) return 0;
+  return pr.basis==='daily' ? (+pr.base||0)/8 : (+pr.base||0)/30/8;
+}
+
+function moneyRows(month){
+  return EMP.map(e=>{
+    const pr = PAY[e.code];
+    const D  = days(e.code).filter(d=>d.date.startsWith(month));
+    const daysPresent = D.filter(d=>!d.incomplete).length;
+    const lateMin     = D.reduce((s,d)=>s+d.late,0);
+    const otEvidence  = D.reduce((s,d)=>s+d.ot,0);
+    const key         = e.code+'_'+month;
+    const otApproved  = OTAPPROVE[key]?.approvedMin ?? 0;
+
+    const gross  = grossOf(pr, daysPresent);
+    const hourly = hourlyOf(pr);
+    const otPay  = hourly * 1.5 * (otApproved/60);
+    const lateDed= e.exempt ? 0 : hourly * (lateMin/60);
+
+    const totalEarn = gross + otPay;
+    const sso  = ssoOf(totalEarn, pr?.exemptSso);
+    const tax  = annualTax(totalEarn*12, pr?.children, pr?.spouse)/12;
+
+    const loanDed = LOANS.filter(l=>l.code===e.code && l.remaining>0)
+      .reduce((s,l)=>s+Math.min(l.installment, l.remaining), 0);
+    const advDed  = ADVANCES.filter(a=>a.code===e.code && a.status==='pending')
+      .reduce((s,a)=>s+a.amount, 0);
+
+    const otherDed = lateDed + loanDed + advDed;
+    const net = totalEarn - sso - tax - otherDed;
+
+    return {e, pr, daysPresent, lateMin, otEvidence, otApproved,
+            gross, otPay, totalEarn, sso, ssoEmployer: sso, tax,
+            lateDed, loanDed, advDed, otherDed, net,
+            incomplete: !pr || !pr.base || !pr.bank || pr.children==null};
+  });
+}
+
+const B = n => (Math.round(n*100)/100).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});
+const B0 = n => Math.round(n).toLocaleString('th-TH');
+
+function money(){
+  if(!canSeeMoney()) return;
+  const month=$('pmonth').value || dstr(new Date()).slice(0,7);
+  const R=moneyRows(month);
+  $('m-gross').textContent=B0(R.reduce((s,r)=>s+r.gross,0));
+  $('m-sso').textContent  =B0(R.reduce((s,r)=>s+r.ssoEmployer,0));
+  $('m-bad').textContent  =R.filter(r=>r.incomplete).length;
+
+  $('mlist').innerHTML = EMP.map(e=>{
+    const pr=PAY[e.code];
+    if(!pr) return `<tr><td class="mono">${e.code}</td><td><b>${e.name}</b></td>
+      <td colspan="6"><span class="chip r">ยังไม่มีข้อมูลการเงิน</span></td>
+      <td><button class="mini" onclick="editPay('${e.code}')">เพิ่ม</button></td></tr>`;
+    return `<tr>
+      <td class="mono">${e.code}</td><td><b>${e.name}</b></td>
+      <td>${pr.basis==='daily'?'รายวัน':'รายเดือน'}</td>
+      <td>${pr.freq==='semi'?'ครึ่งเดือน':'รายเดือน'}</td>
+      <td class="num">${B0(pr.base)}${pr.basis==='daily'?'<span style="font-size:10px;color:var(--ink-3)">/วัน</span>':''}</td>
+      <td class="num">${alwTotal(pr)?B0(alwTotal(pr)):'—'}</td>
+      <td class="num"><b>${B0(grossOf(pr,26))}</b></td>
+      <td>${pr.bank?`<span class="chip g">${pr.bank}</span>`:'<span class="chip r">ไม่มีบัญชี</span>'}</td>
+      <td>${pr.exemptSso?`<span class="chip a">ยกเว้น · ${pr.ssoReason||''}</span>`
+        :(pr.ssoNo?'<span class="chip g">มี</span>':'<span class="chip r">ไม่มีเลข</span>')}</td>
+      <td><button class="mini" onclick="editPay('${e.code}')">แก้ไข</button></td></tr>`;
+  }).join('');
+
+  $('llist').innerHTML = [...LOANS,...ADVANCES].length
+    ? [...LOANS.map(l=>({...l,kind:'loan'})),...ADVANCES.map(a=>({...a,kind:'advance'}))].map(x=>{
+      const e=EMP.find(y=>y.code===x.code);
+      return `<tr><td>${e?e.name:x.code}</td>
+        <td><span class="chip ${x.kind==='loan'?'i':'a'}">${x.kind==='loan'?'เงินกู้':'เบิกล่วงหน้า'}</span></td>
+        <td class="num">${B0(x.kind==='loan'?x.principal:x.amount)}</td>
+        <td class="num">${x.kind==='loan'?B0(x.installment):'—'}</td>
+        <td class="num">${x.kind==='loan'?B0(x.paid||0):(x.status==='deducted'?B0(x.amount):'—')}</td>
+        <td class="num"><b>${x.kind==='loan'?B0(x.remaining):(x.status==='pending'?B0(x.amount):'0')}</b></td>
+        <td style="color:var(--ink-3)">${x.note||''}</td>
+        <td><button class="mini" onclick="delFin('${x.kind}','${x.id}')">ลบ</button></td></tr>`;
+    }).join('')
+    : '<tr><td colspan="8" style="text-align:center;padding:26px;color:var(--ink-3)">ไม่มีรายการ</td></tr>';
+
+  $('lwho').innerHTML = EMP.map(e=>`<option value="${e.code}">${e.code} — ${e.name}</option>`).join('');
+}
+
+window.editPay=code=>{
+  const e=EMP.find(x=>x.code===code);
+  const pr=PAY[code]||{basis:'monthly',freq:'monthly',base:0,
+    alw:{'ตำแหน่ง':0,'ประสบการณ์':0,'โทรศัพท์':0,'น้ำมัน':0},
+    bank:'',acc:'',ssoNo:'',children:null,spouse:false,exemptSso:false,ssoReason:''};
+  $('drawer').innerHTML=`
+    <div class="dh"><div><h2>${e.name}</h2><div class="m">${e.code} · ${e.pos}</div></div>
+      <button class="x" onclick="closeD()">×</button></div>
+    <div class="db"><div class="edit" style="background:#fff;border-radius:12px;padding:18px;box-shadow:var(--sh)">
+      <div class="fg" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px">
+        <div class="f"><label>ฐานค่าจ้าง</label><select id="p-basis">
+          <option value="monthly" ${pr.basis==='monthly'?'selected':''}>รายเดือน</option>
+          <option value="daily" ${pr.basis==='daily'?'selected':''}>รายวัน</option></select></div>
+        <div class="f"><label>รอบจ่าย</label><select id="p-freq">
+          <option value="monthly" ${pr.freq==='monthly'?'selected':''}>รายเดือน</option>
+          <option value="semi" ${pr.freq==='semi'?'selected':''}>ครึ่งเดือน</option></select></div>
+        <div class="f"><label>ค่าแรงฐาน</label><input type="number" id="p-base" value="${pr.base||0}"></div>
+        <div class="f"><label>ค่าตำแหน่ง</label><input type="number" id="p-a1" value="${pr.alw?.['ตำแหน่ง']||0}"></div>
+        <div class="f"><label>ค่าประสบการณ์</label><input type="number" id="p-a2" value="${pr.alw?.['ประสบการณ์']||0}"></div>
+        <div class="f"><label>ค่าโทรศัพท์</label><input type="number" id="p-a3" value="${pr.alw?.['โทรศัพท์']||0}"></div>
+        <div class="f"><label>ค่าน้ำมัน</label><input type="number" id="p-a4" value="${pr.alw?.['น้ำมัน']||0}"></div>
+        <div class="f"><label>ธนาคาร</label><select id="p-bank"><option value="">—</option>
+          ${['KBANK','SCB','BBL','KTB','BAY','TTB','GSB'].map(b=>`<option ${pr.bank===b?'selected':''}>${b}</option>`).join('')}</select></div>
+        <div class="f"><label>เลขที่บัญชี</label><input id="p-acc" value="${pr.acc||''}"></div>
+        <div class="f"><label>เลข ปกส.</label><input id="p-sso" value="${pr.ssoNo||''}"></div>
+        <div class="f"><label>จำนวนบุตร</label><input type="number" min="0" id="p-ch" value="${pr.children??''}" placeholder="0"></div>
+        <div class="f"><label>คู่สมรส</label><select id="p-sp">
+          <option value="0" ${!pr.spouse?'selected':''}>โสด / คู่สมรสมีรายได้</option>
+          <option value="1" ${pr.spouse?'selected':''}>คู่สมรสไม่มีรายได้</option></select></div>
+        <div class="f"><label>ยกเว้น ปกส.</label><select id="p-ex">
+          <option value="" ${!pr.exemptSso?'selected':''}>ไม่ยกเว้น</option>
+          <option value="นายจ้าง" ${pr.ssoReason==='นายจ้าง'?'selected':''}>ยกเว้น — นายจ้าง</option>
+          <option value="เกษียณ — จ่ายเอง" ${pr.ssoReason?.startsWith('เกษียณ')?'selected':''}>ยกเว้น — เกษียณ จ่ายเอง</option>
+        </select></div>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:9px">
+        <button class="btn cy" onclick="savePay('${code}')">บันทึก</button>
+        <button class="btn" onclick="closeD()">ยกเลิก</button>
+      </div>
+      <p style="font-size:12px;color:var(--ink-3);margin-top:12px">
+        <b>จำนวนบุตรว่าง = หักภาษีเกินจริง</b> ไม่ใช่ “ปลอดภัยไว้ก่อน”<br>
+        <b>ยกเว้น ปกส. ตัดทั้งสองฝั่ง</b> — ทั้งฝั่งหักและฝั่งสมทบนายจ้าง</p>
+    </div></div>`;
+  openD();
+};
+
+window.savePay=async code=>{
+  const g=k=>$('p-'+k).value.trim();
+  const ex=g('ex');
+  const ch=g('ch');
+  await setDoc(doc(db,'payroll',code), {
+    code,
+    basis:g('basis'), freq:g('freq'), base:+g('base')||0,
+    alw:{'ตำแหน่ง':+g('a1')||0,'ประสบการณ์':+g('a2')||0,'โทรศัพท์':+g('a3')||0,'น้ำมัน':+g('a4')||0},
+    bank:g('bank'), acc:g('acc'), ssoNo:g('sso'),
+    children: ch===''?null:parseInt(ch,10),
+    spouse: g('sp')==='1',
+    exemptSso: !!ex, ssoReason: ex||'',
+    updatedAt: serverTimestamp(), updatedBy: ME
+  });
+  closeD(); toast('ok','บันทึกข้อมูลการเงินแล้ว','p');
+};
+
+/* ── Loans / advances ── */
+window.addLoan=async()=>{
+  const code=$('lwho').value, type=$('ltype').value;
+  const amt=+$('lamt').value||0, inst=+$('linst').value||0, cnt=+$('lcnt').value||0;
+  if(!code||!amt) return toast('no','กรอกพนักงานและจำนวนเงิน','l');
+  if(type==='loan'){
+    if(!inst) return toast('no','เงินกู้ต้องระบุยอดหักต่องวด','l');
+    await addDoc(collection(db,'loans'), {code, principal:amt, installment:inst,
+      count:cnt||Math.ceil(amt/inst), paid:0, remaining:amt,
+      note:$('lnote').value.trim(), createdAt:serverTimestamp(), by:ME});
+  }else{
+    await addDoc(collection(db,'advances'), {code, amount:amt, type:'travel',
+      status:'pending', note:$('lnote').value.trim(), createdAt:serverTimestamp(), by:ME});
+  }
+  ['lamt','linst','lcnt','lnote'].forEach(k=>$(k).value='');
+  toast('ok','บันทึกแล้ว','l');
+};
+window.delFin=async(kind,id)=>{
+  if(!confirm('ลบรายการนี้?')) return;
+  await deleteDoc(doc(db, kind==='loan'?'loans':'advances', id));
+};
+
+/* ── Payslips ── */
+function payslips(){
+  if(!canSeeMoney()) return;
+  const month=$('pmonth').value || dstr(new Date()).slice(0,7);
+  const R=moneyRows(month);
+  const T=k=>R.reduce((s,r)=>s+r[k],0);
+
+  $('slist').innerHTML = R.map(r=>{
+    const diff = r.otEvidence - r.otApproved;
+    return `<tr>
+    <td><b>${r.e.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${r.e.code}</div>
+      ${r.incomplete?'<span class="chip r">ข้อมูลไม่ครบ</span>':''}</td>
+    <td class="num">${r.daysPresent}</td>
+    <td class="num" style="color:${r.lateMin?'#B67B12':'var(--ink-3)'}">${r.lateMin||'—'}</td>
+    <td class="num" style="color:var(--ink-3)">${(r.otEvidence/60).toFixed(1)}</td>
+    <td class="num">
+      <input type="number" min="0" step="0.5" value="${(r.otApproved/60).toFixed(1)}" style="width:72px;padding:6px;
+        border:1.5px solid ${diff>0?'var(--amber)':'var(--line)'};border-radius:7px;text-align:right;font-family:'IBM Plex Mono'"
+        onchange="approveOT('${r.e.code}','${month}',this.value,${r.otEvidence})">
+      ${diff>0?`<div style="font-size:10px;color:#B67B12">ต่าง ${(diff/60).toFixed(1)} ชม.</div>`:''}
+    </td>
+    <td class="num"><b>${B(r.totalEarn)}</b></td>
+    <td class="num" style="color:${r.pr?.exemptSso?'var(--ink-3)':'inherit'}">${r.sso?B(r.sso):'0'}</td>
+    <td class="num">${B(r.tax)}</td>
+    <td class="num" style="color:${r.otherDed?'var(--rose)':'var(--ink-3)'}">${r.otherDed?B(r.otherDed):'—'}</td>
+    <td class="num"><b style="color:var(--indigo)">${B(r.net)}</b></td>
+  </tr>`}).join('');
+
+  $('sfoot').innerHTML=`<tr style="background:#F7FBFC;font-weight:600">
+    <td colspan="5">รวม ${R.length} คน</td>
+    <td class="num">${B(T('totalEarn'))}</td>
+    <td class="num">${B(T('sso'))}</td>
+    <td class="num">${B(T('tax'))}</td>
+    <td class="num">${B(T('otherDed'))}</td>
+    <td class="num" style="color:var(--indigo)">${B(T('net'))}</td></tr>
+    <tr><td colspan="10" style="font-size:12px;color:var(--ink-3);padding:10px 14px">
+      เงินสมทบนายจ้าง (ปกส.) ${B(T('ssoEmployer'))} บาท — เป็นต้นทุนบริษัท ไม่ใช่รายการหักจากพนักงาน</td></tr>`;
+}
+
+window.approveOT=async(code,month,hours,evidenceMin)=>{
+  const min=Math.round((+hours||0)*60);
+  await setDoc(doc(db,'otapprovals', code+'_'+month),
+    {code, month, approvedMin:min, evidenceMin, by:ME, at:serverTimestamp()});
+};
+
+window.exportPay=()=>{
+  const month=$('pmonth').value || dstr(new Date()).slice(0,7);
+  const R=moneyRows(month);
+  const rows=[['รหัส','ชื่อ','ธนาคาร','เลขที่บัญชี','เลข ปกส.','วันทำงาน','สาย(นาที)',
+    'OT บัตรตอก(ชม.)','OT อนุมัติ(ชม.)','ค่าแรง+เบี้ยเลี้ยง','ค่า OT','รายได้รวม',
+    'ปกส.(หัก)','ภาษี','หักสาย','หักเงินกู้','หักเบิกล่วงหน้า','สุทธิ','ปกส.นายจ้าง']];
+  R.forEach(r=>rows.push([r.e.code, r.e.name, r.pr?.bank||'', r.pr?.acc||'', r.pr?.ssoNo||'',
+    r.daysPresent, r.lateMin, +(r.otEvidence/60).toFixed(2), +(r.otApproved/60).toFixed(2),
+    +r.gross.toFixed(2), +r.otPay.toFixed(2), +r.totalEarn.toFixed(2),
+    +r.sso.toFixed(2), +r.tax.toFixed(2), +r.lateDed.toFixed(2),
+    +r.loanDed.toFixed(2), +r.advDed.toFixed(2), +r.net.toFixed(2), +r.ssoEmployer.toFixed(2)]));
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=rows[0].map(()=>({wch:14}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'สลิป '+month);
+  XLSX.writeFile(wb, `SEUS_เงินเดือน_${month}.xlsx`);
+};
+
+/* ── Finance import ── */
+window.dlPayTemplate=()=>{
+  const ws=XLSX.utils.aoa_to_sheet([
+    ['SEUS — นำเข้าข้อมูลการเงิน'],
+    ['หัวตารางแถวที่ 3 · ฐาน: รายเดือน/รายวัน · รอบจ่าย: เดือน/ครึ่งเดือน · ยกเว้นปกส.: นายจ้าง / เกษียณ / เว้นว่าง'],
+    ['รหัสพนักงาน','ฐาน','รอบจ่าย','ค่าแรงฐาน','ค่าตำแหน่ง','ค่าประสบการณ์','ค่าโทรศัพท์','ค่าน้ำมัน',
+     'ธนาคาร','เลขที่บัญชี','เลข ปกส.','จำนวนบุตร','คู่สมรสไม่มีรายได้','ยกเว้นปกส.'],
+    ['SEUS001','รายวัน','ครึ่งเดือน',600,0,0,0,0,'KBANK','1234567890','1234567890123',2,'ใช่',''],
+    ['SEUS002','รายเดือน','เดือน',45000,3000,2000,1000,2000,'SCB','9876543210','9876543210123',0,'','นายจ้าง'],
+  ]);
+  ws['!cols']=Array(14).fill({wch:14});
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'การเงิน');
+  XLSX.writeFile(wb,'SEUS_ข้อมูลการเงิน_template.xlsx');
+};
+
+const pdz=$('pdrop');
+['dragover','dragenter'].forEach(k=>pdz.addEventListener(k,e=>{e.preventDefault();pdz.classList.add('over');}));
+['dragleave','drop'].forEach(k=>pdz.addEventListener(k,e=>{e.preventDefault();pdz.classList.remove('over');}));
+pdz.addEventListener('drop',e=>e.dataTransfer.files[0]&&readPay(e.dataTransfer.files[0]));
+$('pfile').onchange=e=>e.target.files[0]&&readPay(e.target.files[0]);
+
+function readPay(f){
+  const r=new FileReader();
+  r.onload=async ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{range:2,defval:''});
+      let ok=0, bad=[];
+      for(const [i,row] of rows.entries()){
+        const code=String(row['รหัสพนักงาน']||'').trim();
+        if(!code) continue;
+        if(!EMP.some(e=>e.code===code)){ bad.push(`แถว ${i+4}: ไม่พบรหัส ${code} ในทะเบียน`); continue; }
+        const ex=String(row['ยกเว้นปกส.']||'').trim();
+        await setDoc(doc(db,'payroll',code), {
+          code,
+          basis: String(row['ฐาน']).includes('วัน')?'daily':'monthly',
+          freq:  String(row['รอบจ่าย']).includes('ครึ่ง')?'semi':'monthly',
+          base:  +String(row['ค่าแรงฐาน']).replace(/[^\d.]/g,'')||0,
+          alw:{'ตำแหน่ง':+row['ค่าตำแหน่ง']||0,'ประสบการณ์':+row['ค่าประสบการณ์']||0,
+               'โทรศัพท์':+row['ค่าโทรศัพท์']||0,'น้ำมัน':+row['ค่าน้ำมัน']||0},
+          bank: String(row['ธนาคาร']||'').trim(),
+          acc:  String(row['เลขที่บัญชี']||'').trim(),
+          ssoNo:String(row['เลข ปกส.']||'').trim(),
+          children: row['จำนวนบุตร']===''?null:parseInt(row['จำนวนบุตร'],10),
+          spouse: String(row['คู่สมรสไม่มีรายได้']||'').trim()!=='',
+          exemptSso: !!ex, ssoReason: ex,
+          updatedAt: serverTimestamp(), updatedBy: ME
+        });
+        ok++;
+      }
+      let msg=`นำเข้า ${ok} คน`;
+      if(bad.length) msg+=` · ผิดพลาด ${bad.length}: `+bad.slice(0,2).join(', ');
+      toast(bad.length?'no':'ok', msg, 'p');
+    }catch(err){ toast('no','อ่านไฟล์ไม่ได้: '+err.message,'p'); }
+  };
+  r.readAsArrayBuffer(f);
+}
+
+/* ── Roles ── */
+window.setRole=async()=>{
+  if(!isAdmin()) return toast('no','เฉพาะ Admin เท่านั้น','u');
+  const em=$('uem').value.trim().toLowerCase();
+  if(!em) return toast('no','กรอกอีเมล','u');
+  if(ADMINS.includes(em)) return toast('no','อีเมลนี้เป็น Admin อยู่แล้ว — แก้ไม่ได้','u');
+  await setDoc(doc(db,'roles',em), {email:em, role:$('urole').value, by:ME, at:serverTimestamp()});
+  $('uem').value='';
+  toast('ok','บันทึกสิทธิ์แล้ว','u');
+};
+window.delRole=async em=>{
+  if(!confirm('ถอนสิทธิ์ '+em+'?')) return;
+  await deleteDoc(doc(db,'roles',em));
+};
+function roleList(){
+  const LBL={staff:'ลงเวลา',supervisor:'ดูตารางทุกคน',hr:'ดูข้อมูลการเงิน',accountant:'แก้ไขการเงิน + ออกสลิป'};
+  $('ulist').innerHTML =
+    ADMINS.map(a=>`<tr><td class="mono" style="font-size:12px">${a}</td>
+      <td><span class="chip i">ADMIN</span></td>
+      <td><span style="font-size:11.5px;color:var(--ink-3)">ล็อกในโค้ด</span></td></tr>`).join('')
+    + ROLES.map(r=>`<tr><td class="mono" style="font-size:12px">${r.email}</td>
+      <td><span class="chip ${r.role==='accountant'?'a':r.role==='hr'?'g':''}">${r.role} — ${LBL[r.role]||''}</span></td>
+      <td><button class="mini" onclick="delRole('${r.email}')">ถอน</button></td></tr>`).join('');
+}
+
 /* ── Attendance maths — identical rules to the backend engine ── */
 function punchesOf(code){ return PUNCH.filter(p=>p.code===code); }
 
@@ -1116,21 +1583,25 @@ window.csv=()=>{
 };
 
 function toast(k,m,w){
-  const id = w==='f'?'ftoast' : w==='a'?'atoast' : 'toast';
+  const id = w==='f'?'ftoast' : w==='a'?'atoast' : w==='p'?'ptoast'
+           : w==='l'?'ltoast' : w==='u'?'utoast' : 'toast';
   const t=$(id); if(!t) return;
   t.className='toast '+(k==='ok'?'ok':'no'); t.textContent=m;
   clearTimeout(window['_'+id]); window['_'+id]=setTimeout(()=>t.className='toast',7000);
 }
 
 window.tab=t=>{
-  ['c','d','f','p','t'].forEach(k=>{
+  ['c','d','f','p','t','m','s','u'].forEach(k=>{
     $('v-'+k).classList.toggle('hide',k!==t);
     $('t-'+k).setAttribute('aria-selected',k===t);
   });
   if(t!=='c'&&t!=='f'){ clearInterval(loop); stream?.getTracks().forEach(x=>x.stop()); stream=null; }
   if(t==='c') detectProject();
 };
-function all(){ board(); lists(); grid(); timesheet(); }
+function all(){
+  board(); lists(); grid(); timesheet();
+  if(canSeeMoney()){ money(); payslips(); }
+}
 
 setInterval(()=>{ const d=new Date();
   $('clk').textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; },1000);
