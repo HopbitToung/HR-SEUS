@@ -322,6 +322,20 @@ let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
 let GPS=null;
 
+/* ── Firestore does not support nested arrays. ──────────────────────────────
+   A face is three 128-number vectors. The obvious shape — [[...],[...],[...]] —
+   is an array of arrays, and setDoc() rejects it outright.
+
+   So each vector is wrapped in a map:  [ {v:[...]}, {v:[...]}, {v:[...]} ]
+   An array OF MAPS is fine; it is only array-of-array that Firestore refuses.
+
+   faceVecs() reads either shape, so records written before this fix still load. */
+const faceVecs = e => !e?.face ? []
+  : e.face.map(f => Array.isArray(f) ? f : (f?.v ?? []))
+          .filter(v => v.length === 128);
+
+const packFace = shots => shots.map(v => ({ v: Array.from(v, Number) }));
+
 const pad=n=>String(n).padStart(2,'0');
 const dstr=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const tstr=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -529,13 +543,16 @@ function idLoop(){
       if(!d){ matched=null; cam.className='cam bad';
         $('hst').textContent='ไม่พบใบหน้า — เข้าใกล้กล้องขึ้น'; $('hsc').textContent=''; return gate(); }
       let best=null,bd=99;
-      for(const e of EMP){ if(!e.face) continue;
-        for(const f of e.face){ const x=faceapi.euclideanDistance(d.descriptor, Float32Array.from(f));
-          if(x<bd){bd=x;best=e;} } }
+      for(const e of EMP){
+        for(const f of faceVecs(e)){
+          const x=faceapi.euclideanDistance(d.descriptor, Float32Array.from(f));
+          if(x<bd){ bd=x; best=e; }
+        }
+      }
       if(best&&bd<THRESHOLD){ matched=best; cam.className='cam ok';
         $('hst').textContent=best.name; $('hsc').textContent='ตรง '+(100-bd*100).toFixed(0)+'%';
       }else{ matched=null; cam.className='cam bad';
-        $('hst').textContent=EMP.some(e=>e.face)?'ไม่ตรงกับใครในทะเบียน':'ยังไม่มีใครลงทะเบียนใบหน้า';
+        $('hst').textContent=EMP.some(e=>faceVecs(e).length)?'ไม่ตรงกับใครในทะเบียน':'ยังไม่มีใครลงทะเบียนใบหน้า';
         $('hsc').textContent=''; }
       gate();
     }catch(err){ showErr('idLoop: '+err.message); }
@@ -658,8 +675,8 @@ async function finishEnrol(){
 
     /* And he must not already be enrolled under someone else's name. */
     for(const o of EMP){
-      if(o.code===code||!o.face) continue;
-      for(const f of o.face)
+      if(o.code===code) continue;
+      for(const f of faceVecs(o))
         if(faceapi.euclideanDistance(Float32Array.from(shots[0]), Float32Array.from(f))<THRESHOLD){
           toast('no',`ใบหน้านี้ตรงกับ ${o.name} (${o.code}) ที่ลงทะเบียนแล้ว`,'f');
           log('ปฏิเสธ: ซ้ำกับ '+o.name,'e'); return shotReset();
@@ -667,7 +684,7 @@ async function finishEnrol(){
     }
 
     log('กำลังเขียนลง Firestore…');
-    await setDoc(doc(db,'employees',code), {...e, face: shots.map(s=>s.map(Number))});
+    await setDoc(doc(db,'employees',code), {...e, face: packFace(shots)});
     log('บันทึกสำเร็จ ✓ — ไปลงเวลาได้เลย');
     toast('ok',`ลงทะเบียนใบหน้า ${e.name} สำเร็จ`,'f');
     shotReset();
@@ -755,19 +772,19 @@ function board(){
   let ni=0,nl=0,nn=0;
   $('board').innerHTML = EMP.length ? EMP.map(e=>{
     const d=todayOf(e.code); let cls='',st='ยังไม่ลงเวลา';
-    if(!e.face){ cls='noface'; st='ยังไม่มีใบหน้า'; }
+    if(!faceVecs(e).length){ cls='noface'; st='ยังไม่มีใบหน้า'; }
     if(d&&d.in&&!d.out){ cls=d.late?'late':'in'; ni++; if(d.late)nl++;
       st=`เข้า ${d.in.time} · ${d.proj}`+(d.late?` · สาย ${d.late}น.`:''); }
     else if(d&&d.in&&d.out){ cls='out'; ni++; if(d.late)nl++;
       st=`${d.in.time}–${d.out.time} · ${(d.worked/60).toFixed(1)} ชม.`; }
-    else if(e.face) nn++;
+    else if(faceVecs(e).length) nn++;
     return `<div class="pcell ${cls}"><div class="nm">${e.name}</div><div class="st">${st}</div></div>`;
   }).join('') : '<div style="padding:34px;text-align:center;color:var(--ink-3);grid-column:1/-1">ยังไม่มีใครในทะเบียน</div>';
   $('k-in').textContent=ni; $('k-late').textContent=nl; $('k-none').textContent=nn;
 }
 
 function lists(){
-  const wf=EMP.filter(e=>e.face).length;
+  const wf=EMP.filter(e=>faceVecs(e).length).length;
   $('k-tot').textContent=EMP.length; $('k-face').textContent=wf; $('k-noface').textContent=EMP.length-wf;
 
   $('dlist').innerHTML = EMP.length ? EMP.map(e=>`<tr>
@@ -775,21 +792,21 @@ function lists(){
     <td><b>${e.name}</b><div style="font-size:11px;color:var(--ink-3)">${
       e.exempt?'ผู้บริหาร':e.cls==='overhead'?'แบ็คออฟฟิศ':'หน้างาน'}</div></td>
     <td style="color:var(--ink-3)">${e.pos}</td>
-    <td>${e.face?'<span class="chip g">มีแล้ว</span>':'<span class="chip r">ยังไม่มี</span>'}</td>
+    <td>${faceVecs(e).length?'<span class="chip g">มีแล้ว</span>':'<span class="chip r">ยังไม่มี</span>'}</td>
     <td><button class="btn rd" style="padding:5px 11px;min-height:32px;font-size:12px" onclick="delEmp('${e.code}')">ลบ</button></td>
   </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีใครในทะเบียน</td></tr>';
 
   $('flist').innerHTML = EMP.length ? EMP.map(e=>`<tr>
     <td class="mono">${e.code}</td><td><b>${e.name}</b></td>
-    <td>${e.face?'<span class="chip g">ลงทะเบียนแล้ว</span>':'<span class="chip r">ยังไม่ได้ถ่าย</span>'}</td>
-    <td>${e.face?`<button class="btn" style="padding:5px 11px;min-height:32px;font-size:12px" onclick="clearFace('${e.code}')">ถ่ายใหม่</button>`:''}</td>
+    <td>${faceVecs(e).length?'<span class="chip g">ลงทะเบียนแล้ว</span>':'<span class="chip r">ยังไม่ได้ถ่าย</span>'}</td>
+    <td>${faceVecs(e).length?`<button class="btn" style="padding:5px 11px;min-height:32px;font-size:12px" onclick="clearFace('${e.code}')">ถ่ายใหม่</button>`:''}</td>
   </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีใครในทะเบียน</td></tr>';
 
   /* The dropdown he picks himself from. Names only — no ID numbers, no salary.
      He tells the system who he is; the face confirms it. */
   $('fwho').innerHTML = EMP.length
     ? '<option value="">— เลือกชื่อของคุณ —</option>'+EMP.map(e=>
-        `<option value="${e.code}">${e.face?'✓ ':''}${e.code} — ${e.name}${e.pos!=='—'?' ('+e.pos+')':''}</option>`).join('')
+        `<option value="${e.code}">${faceVecs(e).length?'✓ ':''}${e.code} — ${e.name}${e.pos!=='—'?' ('+e.pos+')':''}</option>`).join('')
     : '<option value="">ยังไม่มีใครในทะเบียน</option>';
 
   $('proj').innerHTML='<option value="">— เลือกโครงการ —</option>'+
