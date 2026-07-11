@@ -296,6 +296,12 @@ import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, s
    project — worse than the spreadsheet, because it is silent.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* Bump this on every deploy. If the screen does not show the version you just
+   uploaded, the phone is running a CACHED copy and no amount of fixing the code
+   will change what you see. That distinction cost us a round trip; it will not
+   cost another. */
+const VERSION='v5';
+
 const SCH={start:480,end:1020,brk:60,grace:15,std:480};
 const THRESHOLD=0.50;
 const ANGLES=['หน้าตรง','เอียงซ้ายเล็กน้อย','เอียงขวาเล็กน้อย'];
@@ -349,6 +355,7 @@ function showErr(t){ const e=$('err'); e.style.display='block';
 /* Visible log. A silent failure on a site phone is a man who thinks he punched in. */
 function log(msg, kind){
   const el=$('flog'); if(!el) return;
+  if(el.dataset.v!==VERSION){ el.dataset.v=VERSION; el.innerHTML=`<div>SEUS ${VERSION} — พร้อมใช้งาน</div>`; }
   const t=new Date().toTimeString().slice(0,8);
   el.innerHTML += `<div class="${kind||''}">[${t}] ${msg}</div>`;
   el.scrollTop = el.scrollHeight;
@@ -381,7 +388,7 @@ function boot(){
     if(u){
       uid=u.uid;
       document.getElementById('boot').classList.add('hide');
-      document.getElementById('cloud').textContent='● '+(u.email||'เชื่อมต่อแล้ว');
+      document.getElementById('cloud').textContent='● '+(u.email||'เชื่อมต่อแล้ว')+' · '+VERSION;
       listen();
     }else{
       document.getElementById('boot').classList.remove('hide');
@@ -683,8 +690,10 @@ async function finishEnrol(){
         }
     }
 
-    log('กำลังเขียนลง Firestore…');
-    await setDoc(doc(db,'employees',code), {...e, face: packFace(shots)});
+    const payload = { ...e, face: packFace(shots) };
+    delete payload.id;   // the doc id is not a field
+    log(`กำลังเขียนลง Firestore… (${VERSION}, ${payload.face.length} เวกเตอร์ × ${payload.face[0].v.length})`);
+    await setDoc(doc(db,'employees',code), payload);
     log('บันทึกสำเร็จ ✓ — ไปลงเวลาได้เลย');
     toast('ok',`ลงทะเบียนใบหน้า ${e.name} สำเร็จ`,'f');
     shotReset();
