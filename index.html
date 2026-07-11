@@ -135,7 +135,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 <body>
 <div id="err"></div>
 
-<!-- ══ LOGIN (required for everyone) ══ -->
+<!-- ══ LOGIN ══ -->
 <div id="boot">
   <div class="card">
     <h3 style="font-size:20px;margin-bottom:4px">SEUS — เข้าสู่ระบบ</h3>
@@ -143,17 +143,23 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
       ล็อกอินครั้งเดียวต่อเครื่อง — แอปจะจำไว้ให้</p>
 
     <label class="fl">อีเมล</label>
-    <input class="tx" id="lem" type="email" autocomplete="username" placeholder="staff@seus.co.th">
+    <input class="tx" id="lem" type="email" autocomplete="username" inputmode="email"
+      autocapitalize="none" spellcheck="false" placeholder="staff@seus.co.th">
     <label class="fl">รหัสผ่าน</label>
     <input class="tx" id="lpw" type="password" autocomplete="current-password" placeholder="••••••••">
 
     <button class="btn go" style="width:100%;margin-top:16px;min-height:52px" id="blogin" onclick="doLogin()">เข้าสู่ระบบ</button>
     <div class="toast" id="btoast"></div>
+    <div id="bhelp" class="hide" style="margin-top:10px;padding:12px 14px;border-radius:10px;
+      background:var(--amber-l);font-size:12.5px;color:var(--ink-2);line-height:1.7"></div>
 
-    <p style="font-size:12px;color:var(--ink-3);margin-top:14px;line-height:1.6">
-      <b style="color:var(--rose)">ต้องปิด Anonymous sign-in ใน Firebase Console</b><br>
-      config อยู่ใน repo สาธารณะ — ถ้าเปิด Anonymous ไว้ ใครก็ตามที่เจอ config
-      จะเข้ามาอ่านใบหน้าและประวัติพิกัดของพนักงานได้ทั้งหมด</p>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn" style="flex:1" onclick="resetPw()">ลืมรหัสผ่าน</button>
+      <button class="btn" style="flex:1" onclick="hardReset()">ล้างเซสชัน</button>
+    </div>
+
+    <p class="mono" style="font-size:11px;color:var(--ink-3);margin-top:12px;text-align:center">
+      project: hr-seus · <span id="vtag"></span></p>
   </div>
 </div>
 
@@ -174,6 +180,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   <button id="t-m" aria-selected="false" onclick="tab('m')" class="hide">บัญชี / การเงิน</button>
   <button id="t-s" aria-selected="false" onclick="tab('s')" class="hide">สลิปเงินเดือน</button>
   <button id="t-u" aria-selected="false" onclick="tab('u')" class="hide">สิทธิ์ผู้ใช้</button>
+  <button class="btn rd hide" id="outbtn2" onclick="doLogout()" style="margin-left:auto">ออกจากระบบ</button>
 </nav>
 
 <main>
@@ -329,7 +336,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut,
+import { getAuth, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
          onAuthStateChanged, setPersistence, browserLocalPersistence }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSnapshot, serverTimestamp }
@@ -358,7 +365,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v9';
+const VERSION='v10';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -461,22 +468,66 @@ function log(msg, kind){
    Leaving it on defeats every line of this file.
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* Firebase's error codes are the only thing that tells you WHY a login failed.
+   Hiding them behind a friendly message means the person on the phone and the
+   person who can fix it are looking at two different problems. Show both:
+   what happened, and what to do next. */
+const AUTH_HELP = {
+  'auth/operation-not-allowed':
+    'ยังไม่ได้เปิด <b>Email/Password</b> ใน Firebase Console<br>→ Authentication → Sign-in method → Email/Password → <b>Enable</b>',
+  'auth/invalid-credential':
+    'อีเมลหรือรหัสผ่านไม่ถูกต้อง — หรือ<b>ยังไม่ได้สร้างบัญชีนี้</b><br>→ Authentication → Users → <b>Add user</b>',
+  'auth/user-not-found':
+    'ยังไม่มีบัญชีนี้ใน Firebase<br>→ Authentication → Users → <b>Add user</b>',
+  'auth/wrong-password': 'รหัสผ่านไม่ถูกต้อง',
+  'auth/invalid-email': 'รูปแบบอีเมลไม่ถูกต้อง',
+  'auth/too-many-requests': 'พยายามหลายครั้งเกินไป — รอ 5 นาที หรือกด “ลืมรหัสผ่าน”',
+  'auth/network-request-failed': 'เชื่อมต่ออินเทอร์เน็ตไม่ได้',
+  'auth/unauthorized-domain':
+    'โดเมนนี้ยังไม่ได้รับอนุญาต<br>→ Authentication → Settings → Authorized domains → เพิ่ม <b>hopbittoung.github.io</b>',
+};
+
 window.doLogin=async()=>{
-  const em=document.getElementById('lem').value.trim();
+  const em=document.getElementById('lem').value.trim().toLowerCase();
   const pw=document.getElementById('lpw').value;
   const t=document.getElementById('btoast');
+  const h=document.getElementById('bhelp');
+  h.classList.add('hide');
+
   if(!em||!pw){ t.className='toast no'; t.textContent='กรอกอีเมลและรหัสผ่าน'; return; }
+
   document.getElementById('blogin').disabled=true;
+  t.className='toast'; t.textContent='';
   try{
     await setPersistence(auth, browserLocalPersistence);   // one login per phone, ever
     await signInWithEmailAndPassword(auth, em, pw);
   }catch(e){
     t.className='toast no';
-    t.textContent = e.code==='auth/invalid-credential' ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
-                  : e.code==='auth/operation-not-allowed' ? 'ยังไม่ได้เปิด Email/Password ใน Firebase Console'
-                  : e.code==='auth/too-many-requests' ? 'พยายามหลายครั้งเกินไป — รอสักครู่'
-                  : 'เข้าสู่ระบบไม่ได้: '+e.message;
+    t.innerHTML = 'เข้าสู่ระบบไม่ได้<br><span class="mono" style="font-size:11.5px">'+e.code+'</span>';
+    if(AUTH_HELP[e.code]){ h.innerHTML = AUTH_HELP[e.code]; h.classList.remove('hide'); }
+    else { h.innerHTML = e.message; h.classList.remove('hide'); }
   }finally{ document.getElementById('blogin').disabled=false; }
+};
+
+window.resetPw=async()=>{
+  const em=document.getElementById('lem').value.trim().toLowerCase();
+  const t=document.getElementById('btoast');
+  if(!em){ t.className='toast no'; t.textContent='กรอกอีเมลก่อน'; return; }
+  try{
+    await sendPasswordResetEmail(auth, em);
+    t.className='toast ok'; t.textContent='ส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่ '+em+' แล้ว';
+  }catch(e){
+    t.className='toast no'; t.innerHTML='ส่งไม่ได้<br><span class="mono" style="font-size:11.5px">'+e.code+'</span>';
+  }
+};
+
+/* Escape hatch. A stale or half-broken session can lock a phone out of a login
+   screen it cannot leave — and a user who cannot get out cannot get in either. */
+window.hardReset=async()=>{
+  if(!confirm('ล้างเซสชันและโหลดใหม่?')) return;
+  try{ await signOut(auth); }catch(e){}
+  try{ localStorage.clear(); sessionStorage.clear(); }catch(e){}
+  location.reload();
 };
 
 window.doLogout=async()=>{
@@ -486,6 +537,7 @@ window.doLogout=async()=>{
 };
 
 function boot(){
+  const vt=document.getElementById('vtag'); if(vt) vt.textContent=VERSION;
   const app=initializeApp(FIREBASE_CONFIG);
   auth=getAuth(app);
   db=getFirestore(app);
@@ -513,6 +565,7 @@ function boot(){
     document.getElementById('boot').classList.add('hide');
     document.getElementById('cloud').textContent='● '+ME+' · '+MYROLE+' · '+VERSION;
     document.getElementById('outbtn').classList.remove('hide');
+    document.getElementById('outbtn2').classList.remove('hide');
 
     /* Tabs are hidden for tidiness. The RULES are what protect the data. */
     const staffOnly = MYROLE==='staff';
