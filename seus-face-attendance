@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SEUS — ระบบลงเวลาด้วยใบหน้า</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --cyan:#22BFD3; --cyan-d:#16A8BC; --cyan-l:#E4F7FA;
+  --indigo:#5B4FE9; --indigo-l:#ECEAFE;
+  --amber:#F6B43C; --amber-l:#FEF3E0;
+  --rose:#EF6B6B; --rose-l:#FDECEC;
+  --green:#3CC28A; --green-l:#E4F7EF;
+  --bg:#E9F6FA; --ink:#2E3B44; --ink-2:#5E7079; --ink-3:#9AAAB3;
+  --line:#E6EFF2; --sh:0 1px 3px rgba(46,59,68,.06),0 6px 20px rgba(46,59,68,.05); --r:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;
+  font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,select{font-family:inherit}
+.hide{display:none!important}
+
+.hero{background:var(--cyan);color:#fff;border-radius:var(--r);margin:16px 20px 0;padding:20px 26px;
+  display:flex;align-items:center;gap:18px;box-shadow:var(--sh)}
+.hero h1{font-size:25px;font-weight:700}
+.hero .sub{font-size:12.5px;opacity:.9;margin-top:2px}
+.hero .badge{margin-left:auto;text-align:right}
+.hero .badge b{display:block;font-size:14px}
+.hero .badge span{font-size:11px;opacity:.85}
+
+nav{display:flex;gap:6px;padding:14px 20px 0;overflow-x:auto;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{padding:9px 17px;border-radius:999px;font-size:13.5px;font-weight:500;background:#fff;
+  color:var(--ink-2);box-shadow:var(--sh);white-space:nowrap;min-height:42px}
+nav button[aria-selected=true]{background:var(--indigo);color:#fff;font-weight:600}
+nav .sp{margin-left:auto;display:flex;gap:8px}
+.btn{padding:9px 16px;border-radius:999px;font-size:13px;font-weight:600;background:#fff;
+  color:var(--ink-2);box-shadow:var(--sh);white-space:nowrap;min-height:42px}
+.btn.go{background:var(--indigo);color:#fff} .btn.cy{background:var(--cyan);color:#fff}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+main{padding:16px 20px 80px;max-width:1440px;margin:0 auto}
+
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.head h2{font-size:21px;font-weight:600}
+.head p{color:var(--ink-3);font-size:13px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap}
+.kpi{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:12px 16px;min-width:118px}
+.kpi .k{font-size:11px;color:var(--ink-3)}
+.kpi .v{font-family:'IBM Plex Mono';font-size:21px;font-weight:600}
+.kpi.cy .v{color:var(--cyan-d)} .kpi.in .v{color:var(--indigo)}
+.kpi.am .v{color:#B67B12} .kpi.ro .v{color:var(--rose)} .kpi.gr .v{color:#2A9169}
+
+.panel{background:#fff;border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;margin-bottom:16px}
+.panel h3{padding:14px 20px;font-size:15px;font-weight:600;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:10px}
+.panel .in{padding:20px}
+.tw{overflow-x:auto} .tw table{min-width:600px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;padding:11px 16px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink-3);border-bottom:1px solid var(--line);font-weight:600;background:#F7FBFC}
+td{padding:11px 16px;border-bottom:1px solid var(--line)}
+tr:last-child td{border:none}
+td.num,th.num{text-align:right;font-family:'IBM Plex Mono'}
+.chip{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--cyan-l);color:var(--cyan-d);font-weight:500;white-space:nowrap}
+.chip.i{background:var(--indigo-l);color:var(--indigo)} .chip.a{background:var(--amber-l);color:#B67B12}
+.chip.r{background:var(--rose-l);color:#C94545} .chip.g{background:var(--green-l);color:#2A9169}
+
+/* ── secure-context banner ── */
+.ctx{display:flex;gap:12px;background:var(--rose-l);border-radius:var(--r);padding:15px 18px;margin-bottom:16px;align-items:flex-start}
+.ctx b{color:#C94545}
+.ctx p{font-size:13px;color:var(--ink-2);margin-top:3px}
+.ctx code{font-family:'IBM Plex Mono';font-size:12px;background:#fff;padding:1px 6px;border-radius:5px}
+
+/* ── camera ── */
+.cam{position:relative;background:#0E2027;border-radius:12px;overflow:hidden;aspect-ratio:4/3;
+  display:grid;place-items:center}
+.cam video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam canvas{position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)}
+.cam .ph{color:#7FA3AE;font-size:13.5px;text-align:center;padding:24px}
+.cam .ring{position:absolute;inset:8%;border:3px dashed rgba(255,255,255,.35);border-radius:50%;pointer-events:none}
+.cam.ok .ring{border-color:var(--green);border-style:solid}
+.cam.bad .ring{border-color:var(--amber)}
+.cam .hud{position:absolute;left:0;right:0;bottom:0;padding:11px 14px;background:linear-gradient(transparent,rgba(0,0,0,.65));
+  color:#fff;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cam .hud .st{font-weight:600}
+.shots{display:flex;gap:8px;margin-top:12px}
+.shot{flex:1;aspect-ratio:1;border-radius:10px;border:2px dashed #CBDDE3;display:grid;place-items:center;
+  font-size:11.5px;color:var(--ink-3);overflow:hidden;position:relative;background:#F7FBFC}
+.shot img{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.shot.done{border:2px solid var(--green)}
+.shot .lb{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.55);color:#fff;font-size:10px;padding:2px}
+
+label.fl{display:block;font-size:12px;color:var(--ink-3);margin-bottom:5px}
+select,input.tx{width:100%;padding:12px 13px;border-radius:10px;border:1.5px solid var(--line);
+  background:#FBFDFE;font-size:15px;color:var(--ink);min-height:48px}
+select:focus,input.tx:focus{outline:none;border-color:var(--cyan)}
+select.need{border-color:var(--rose);background:#FFF7F7}
+.cibtns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.cibtn{padding:18px;border-radius:12px;font-size:16px;font-weight:700;color:#fff;min-height:60px}
+.cibtn.i{background:var(--green)} .cibtn.o{background:var(--rose)}
+.cibtn:disabled{opacity:.4;cursor:not-allowed}
+.toast{margin-top:12px;padding:13px 15px;border-radius:10px;font-size:13.5px;display:none}
+.toast.ok{display:block;background:var(--green-l);color:#2A9169}
+.toast.no{display:block;background:var(--rose-l);color:#C94545}
+.toast.wa{display:block;background:var(--amber-l);color:#B67B12}
+
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:420px 1fr;gap:16px}
+@media(max-width:960px){.g2,.g3{grid-template-columns:1fr}}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.card{background:#fff;border-radius:var(--r);box-shadow:var(--sh);padding:19px 20px;text-align:left;
+  width:100%;transition:transform .18s,box-shadow .18s;cursor:pointer}
+.card:hover{transform:translateY(-3px);box-shadow:0 4px 10px rgba(46,59,68,.08),0 14px 34px rgba(46,59,68,.09)}
+.card .code{font-family:'IBM Plex Mono';font-size:11px;color:var(--cyan-d);font-weight:600}
+.card h3{font-size:17px;font-weight:600;margin:4px 0 2px;padding:0;border:none}
+.card .client{font-size:12.5px;color:var(--ink-3);min-height:19px}
+.card .foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;gap:12px}
+.ring2{width:58px;height:58px;position:relative;flex-shrink:0}
+.ring2 svg{transform:rotate(-90deg)}
+.ring2 b{position:absolute;inset:0;display:grid;place-items:center;font-family:'IBM Plex Mono';font-size:17px;font-weight:600}
+.card .cost b{font-family:'IBM Plex Mono';font-size:16px;color:var(--indigo);font-weight:600}
+.card .cost span{display:block;font-size:10.5px;color:var(--ink-3);text-align:right}
+.card .roles{margin-top:13px;padding-top:11px;border-top:1px solid var(--line);display:flex;gap:5px;flex-wrap:wrap}
+.card.bo{border:2px solid var(--indigo)}
+
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px;padding:16px}
+.pcell{border:1.5px solid var(--line);border-radius:12px;padding:12px 13px;cursor:pointer;min-height:70px}
+.pcell:hover{border-color:var(--cyan)}
+.pcell .nm{font-size:13px;font-weight:500;line-height:1.3}
+.pcell .st{font-family:'IBM Plex Mono';font-size:11px;margin-top:4px;color:var(--ink-3)}
+.pcell.in{background:var(--green-l);border-color:#BFE9D6} .pcell.in .st{color:#2A9169}
+.pcell.out{background:var(--cyan-l);border-color:#C4EBF1} .pcell.out .st{color:var(--cyan-d)}
+.pcell.late{background:var(--amber-l);border-color:#F6DFB4} .pcell.late .st{color:#B67B12}
+.pcell.nokyc{border-color:#F3C9C9;background:#FEF6F6}
+.pcell.nokyc .st{color:#C94545}
+.pcell.exempt{opacity:.6}
+
+.scrim{position:fixed;inset:0;background:rgba(30,45,52,.45);opacity:0;pointer-events:none;transition:.22s;z-index:40}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(900px,100%);z-index:50;background:var(--bg);
+  transform:translateX(100%);transition:transform .3s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;
+  box-shadow:-8px 0 40px rgba(30,45,52,.2)}
+.drawer.open{transform:none}
+.dh{background:var(--cyan);color:#fff;padding:20px 24px;display:flex;align-items:flex-start;gap:14px}
+.dh h2{font-size:21px} .dh .m{font-size:12.5px;opacity:.9;margin-top:2px}
+.dh .x{margin-left:auto;font-size:26px;padding:0 8px}
+.dstats{display:flex;background:#fff;overflow-x:auto}
+.ds{flex:1;min-width:112px;padding:13px 18px;border-right:1px solid var(--line)}
+.ds:last-child{border:none}
+.ds .k{font-size:10.5px;color:var(--ink-3)}
+.ds .v{font-family:'IBM Plex Mono';font-size:18px;font-weight:600}
+.db{flex:1;overflow-y:auto;padding:14px}
+.erow{display:flex;gap:12px;align-items:center;background:#fff;border-radius:12px;padding:13px 15px;
+  margin-bottom:8px;box-shadow:var(--sh);flex-wrap:wrap}
+.erow .nm{font-weight:600;font-size:14px}
+.erow .ps{font-size:12px;color:var(--ink-3)}
+.erow .rt{margin-left:auto;text-align:right;font-family:'IBM Plex Mono';font-size:14px;font-weight:600;color:var(--indigo)}
+.erow .rt small{display:block;font-family:'IBM Plex Sans Thai';font-size:10.5px;color:var(--ink-3);font-weight:400}
+.mini{font-size:12px;padding:8px 12px;border-radius:999px;background:#F2F7F9;color:var(--ink-2);font-weight:500;min-height:38px}
+.mini:hover{background:var(--indigo-l);color:var(--indigo)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rose);margin-left:5px}
+.edit{background:#fff;border-radius:12px;padding:17px;margin-bottom:9px;box-shadow:var(--sh)}
+.fg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:11px}
+.f label{display:block;font-size:11px;color:var(--ink-3);margin-bottom:4px}
+.f input,.f select{width:100%;padding:10px 11px;border-radius:9px;border:1.5px solid var(--line);
+  background:#FBFDFE;font-size:13.5px;min-height:42px}
+.f.req input:placeholder-shown{border-color:var(--rose)}
+.ef{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap}
+
+.drop{border:2.5px dashed #C3DBE3;border-radius:var(--r);padding:36px 20px;text-align:center;
+  background:#F7FBFC;cursor:pointer;transition:.16s}
+.drop:hover,.drop.over{border-color:var(--cyan);background:var(--cyan-l)}
+.drop b{display:block;font-size:16px;margin-bottom:4px}
+.drop span{font-size:13px;color:var(--ink-3)}
+.blk{display:flex;gap:11px;padding:13px 18px;border-bottom:1px solid var(--line);align-items:flex-start}
+.blk:last-child{border:none}
+.sev{font-family:'IBM Plex Mono';font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;flex-shrink:0;margin-top:2px}
+.sev.block{background:var(--rose-l);color:#C94545}
+.sev.warn{background:var(--amber-l);color:#B67B12}
+.sev.ok{background:var(--green-l);color:#2A9169}
+.blk h5{font-size:14px;font-weight:600}
+.blk p{font-size:12.5px;color:var(--ink-3);margin-top:2px;max-width:84ch}
+
+@media(max-width:760px){
+  .hero{margin:12px 12px 0;padding:16px;flex-wrap:wrap}
+  .hero h1{font-size:20px} .hero .badge{margin-left:0}
+  nav{padding:12px 12px 0} main{padding:14px 12px 70px}
+  .cards{grid-template-columns:1fr} .board{grid-template-columns:1fr 1fr}
+  .drawer{width:100%} .fg{grid-template-columns:1fr 1fr}
+  .kpi{flex:1;min-width:0}
+}
+@media(max-width:400px){.fg,.board{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div><h1>ระบบลงเวลาด้วยใบหน้า</h1><div class="sub">SEUS Engineering Co., Ltd.</div></div>
+  <div class="badge"><b>SEUS</b><span>Electrical &amp; Instrumentation</span></div>
+</div>
+
+<nav>
+  <button id="t-c" aria-selected="true" onclick="tab('c')">ลงเวลา</button>
+  <button id="t-k" aria-selected="false" onclick="tab('k')">ลงทะเบียนใบหน้า</button>
+  <button id="t-p" aria-selected="false" onclick="tab('p')">โครงการ</button>
+  <button id="t-t" aria-selected="false" onclick="tab('t')">ตารางเวลา</button>
+  <button id="t-i" aria-selected="false" onclick="tab('i')">นำเข้าข้อมูล</button>
+  <button id="t-s" aria-selected="false" onclick="tab('s')">สรุป HR / บัญชี</button>
+  <div class="sp"><button class="btn" onclick="save()">บันทึก</button></div>
+</nav>
+
+<main>
+<div class="ctx hide" id="ctx">
+  <span class="sev block">HTTPS</span>
+  <div><b>เปิดจากไฟล์ในเครื่อง — กล้องและ GPS ใช้ไม่ได้</b>
+    <p>เบราว์เซอร์อนุญาตให้ใช้กล้องและพิกัดเฉพาะเมื่อเปิดผ่าน <code>https://</code> หรือ <code>localhost</code> เท่านั้น (secure context)<br>
+    ต้องอัปไฟล์นี้ขึ้น GitHub Pages หรือเซิร์ฟเวอร์ที่มี SSL ก่อน ระบบใบหน้าจึงจะทำงาน — <b>นี่เป็นกฎความปลอดภัยของเบราว์เซอร์ ไม่ใช่ข้อจำกัดของระบบ</b></p></div>
+</div>
+
+<!-- ══ CHECK IN ══ -->
+<div id="v-c">
+  <div class="head">
+    <div><h2>ลงเวลาด้วยใบหน้า</h2><p>เลือกโครงการ → มองกล้อง → ระบบจะจำได้เอง</p></div>
+    <div class="kpis">
+      <div class="kpi gr"><div class="k">เข้างานแล้ว</div><div class="v" id="k-in">0</div></div>
+      <div class="kpi am"><div class="k">มาสาย</div><div class="v" id="k-late">0</div></div>
+      <div class="kpi ro"><div class="k">ยังไม่ลงเวลา</div><div class="v" id="k-none">0</div></div>
+      <div class="kpi in"><div class="k">ลงทะเบียนใบหน้าแล้ว</div><div class="v" id="k-kyc">0</div></div>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="panel">
+      <h3>ลงเวลา <span class="chip" id="clk">--:--:--</span></h3>
+      <div class="in">
+        <label class="fl">โครงการ <b style="color:var(--rose)">*</b> — ต้องเลือกทุกครั้ง</label>
+        <select id="proj" class="need" onchange="projPicked()"></select>
+
+        <div class="cam" id="cam" style="margin-top:14px">
+          <video id="vid" autoplay muted playsinline></video>
+          <canvas id="ov"></canvas>
+          <div class="ring"></div>
+          <div class="ph" id="camph">กดปุ่มด้านล่างเพื่อเปิดกล้อง</div>
+          <div class="hud hide" id="hud"><span class="st" id="hudst">กำลังค้นหาใบหน้า…</span><span class="mono" id="hudsc"></span></div>
+        </div>
+
+        <div class="cibtns">
+          <button class="cibtn i" id="bIn" onclick="doPunch('in')" disabled>เข้างาน</button>
+          <button class="cibtn o" id="bOut" onclick="doPunch('out')" disabled>ออกงาน</button>
+        </div>
+        <button class="btn cy" style="width:100%;margin-top:10px;min-height:46px" id="bCam" onclick="startCam('c')">เปิดกล้อง</button>
+        <div class="toast" id="toast"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>สถานะวันนี้ <span style="font-weight:400;color:var(--ink-3);font-size:13px" id="today"></span></h3>
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ KYC ══ -->
+<div id="v-k" class="hide">
+  <div class="head">
+    <div><h2>ลงทะเบียนใบหน้า (KYC)</h2><p>เก็บ 3 มุม · ใบหน้าถูกแปลงเป็นเวกเตอร์ 128 ตัวเลข ไม่ได้เก็บรูปเป็นใบหน้า</p></div>
+    <div class="kpis">
+      <div class="kpi gr"><div class="k">ลงทะเบียนแล้ว</div><div class="v" id="k-done">0</div></div>
+      <div class="kpi ro"><div class="k">ยังไม่ลงทะเบียน</div><div class="v" id="k-todo">0</div></div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="panel">
+      <h3>ลงทะเบียน</h3>
+      <div class="in">
+        <label class="fl">พนักงาน</label>
+        <select id="kwho" onchange="kycReset()"></select>
+        <div class="cam" id="kcam" style="margin-top:14px">
+          <video id="kvid" autoplay muted playsinline></video>
+          <div class="ring"></div>
+          <div class="ph" id="kcamph">กดเปิดกล้องเพื่อเริ่ม</div>
+          <div class="hud hide" id="khud"><span class="st" id="khudst">—</span></div>
+        </div>
+        <div class="shots">
+          <div class="shot" id="s0"><span>หน้าตรง</span></div>
+          <div class="shot" id="s1"><span>เอียงซ้าย</span></div>
+          <div class="shot" id="s2"><span>เอียงขวา</span></div>
+        </div>
+        <div class="cibtns" style="grid-template-columns:1fr">
+          <button class="cibtn i" id="bShot" onclick="capture()" disabled>ถ่ายภาพ (0/3)</button>
+        </div>
+        <button class="btn cy" style="width:100%;margin-top:10px;min-height:46px" onclick="startCam('k')">เปิดกล้อง</button>
+        <div class="toast" id="ktoast"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>สถานะการลงทะเบียน</h3>
+      <div class="tw"><table>
+        <thead><tr><th>พนักงาน</th><th>ตำแหน่ง</th><th>สถานะ</th></tr></thead>
+        <tbody id="kyclist"></tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ PROJECTS ══ -->
+<div id="v-p" class="hide">
+  <div class="head">
+    <div><h2>กำลังคนตามโครงการ</h2><p>กดการ์ดเพื่อดูรายชื่อและแก้ไข</p></div>
+    <div class="kpis">
+      <div class="kpi cy"><div class="k">พนักงาน</div><div class="v" id="k-hc">—</div></div>
+      <div class="kpi in"><div class="k">ต้นทุน / เดือน</div><div class="v" id="k-cost">—</div></div>
+    </div>
+  </div>
+  <div class="cards" id="grid"></div>
+</div>
+
+<!-- ══ TIMESHEET ══ -->
+<div id="v-t" class="hide">
+  <div class="head"><div><h2>ตารางเวลาทำงาน</h2>
+    <p>08:00–17:00 · พัก 60 นาที · ผ่อนผัน 15 นาที · กดที่ชื่อเพื่อดูรายวัน</p></div></div>
+  <div class="panel"><div class="tw"><table>
+    <thead><tr><th>พนักงาน</th><th class="num">วัน</th><th class="num">ชม.รวม</th><th class="num">สาย (น.)</th>
+      <th class="num">OT (หลักฐาน)</th><th>โครงการที่ลงเวลา</th><th>ล่าสุด</th></tr></thead>
+    <tbody id="ts"></tbody></table></div></div>
+</div>
+
+<!-- ══ IMPORT ══ -->
+<div id="v-i" class="hide">
+  <div class="head"><div><h2>นำเข้าข้อมูลจากไฟล์</h2>
+    <p>รองรับไฟล์ทะเบียนประวัติพนักงานที่ใช้อยู่ (.xlsx) — ไม่ต้องแก้รูปแบบ</p></div>
+    <button class="btn cy" onclick="dlTemplate()">ดาวน์โหลด Template</button>
+  </div>
+
+  <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+    <b>ลากไฟล์มาวาง หรือกดเพื่อเลือก</b>
+    <span>.xlsx / .xls · ระบบจะอ่านชีต “Database” หัวตารางแถวที่ 3</span>
+  </div>
+  <input type="file" id="file" accept=".xlsx,.xls" class="hide">
+
+  <div class="panel hide" id="dry" style="margin-top:16px">
+    <h3>ผลตรวจก่อนนำเข้า (Dry Run)</h3>
+    <div id="dryout"></div>
+    <div class="in" style="display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line)">
+      <button class="btn go" onclick="applyImport()">นำเข้าจริง</button>
+      <button class="btn" onclick="document.getElementById('dry').classList.add('hide')">ยกเลิก</button>
+      <span style="font-size:12px;color:var(--ink-3);align-self:center">ไม่มีอะไรถูกเขียนจนกว่าจะกด “นำเข้าจริง”</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SUMMARY ══ -->
+<div id="v-s" class="hide">
+  <div class="head">
+    <div><h2>สรุปสำหรับ HR และบัญชี</h2><p id="s-cnt">—</p></div>
+    <div class="kpis">
+      <div class="kpi in"><div class="k">รวมรายได้</div><div class="v" id="s-g">—</div></div>
+      <div class="kpi cy"><div class="k">ปกส. นายจ้าง</div><div class="v" id="s-e">—</div></div>
+      <div class="kpi am"><div class="k">สุทธิจ่าย</div><div class="v" id="s-n">—</div></div>
+    </div>
+  </div>
+  <div class="panel"><h3>ประกันสังคม — ใครไม่ต้องหัก และทำไม</h3><div class="tw"><table>
+    <thead><tr><th>พนักงาน</th><th>ตำแหน่ง</th><th>เหตุผล</th><th class="num">หักพนักงาน</th><th class="num">สมทบนายจ้าง</th></tr></thead>
+    <tbody id="s-x"></tbody></table></div></div>
+  <div class="panel"><h3>แยกตามประเภทต้นทุน</h3><div class="tw"><table>
+    <thead><tr><th>ประเภท</th><th class="num">คน</th><th class="num">รวมรายได้</th><th class="num">ปกส.นายจ้าง</th><th class="num">ต้นทุนรวม</th><th>ลงบัญชีที่</th></tr></thead>
+    <tbody id="s-c"></tbody></table></div></div>
+  <div class="panel"><h3>ต้องเคลียร์ก่อนรันเงินเดือน</h3><div id="s-b"></div></div>
+</div>
+
+</main>
+<div class="scrim" id="scrim" onclick="closeD()"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true"></aside>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEUS — face check-in, project allocation, timesheet, import.
+
+   HONEST SCOPE. Read this before you trust it with payroll.
+
+   This page runs face matching in KIOSK mode: 1:N. It looks at a face and asks
+   "who is this?" against everybody enrolled. That is convenient — nobody has to
+   pick their own name — and it is WEAKER than the Flutter app, which does 1:1
+   against a phone bound to one man's keystore, with a signed payload.
+
+   Consequences, stated plainly:
+     • No device binding. Anyone standing at this screen can be matched.
+     • No cryptographic signature. A punch here is not evidence in a dispute
+       the way a signed punch from the app is.
+     • A photograph held up to the camera can pass. There is a movement check
+       below, but it is not real liveness.
+
+   Use this for the office, the site cabin, a shared tablet. For the men on the
+   scaffold, use the app.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const EMP = [{"code": "SEUS000", "name": "นายบุญมา ขจายเกียรติกำจร", "nick": "เอ๋", "pos": "กรรมการผู้จัดการใหญ่", "basis": "monthly", "freq": "monthly", "base": 170000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 170000.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 27916.67, "net": 142083.33, "cls": "overhead", "exemptAtt": true, "exemptSso": true, "status": "ประจำ", "hire": "2005-08-23", "nid": "3900400011570", "children": null, "bank": "", "ssoNo": "", "id": "SEUS000", "projectId": null, "isDirector": true, "ssoReason": "นายจ้าง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS001", "name": "นายอาณัติ เล็กเกาะทวด", "nick": "แจ็ค", "pos": "กรรมการ", "basis": "monthly", "freq": "monthly", "base": 125000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 125000.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 16666.67, "net": 108333.33, "cls": "overhead", "exemptAtt": true, "exemptSso": true, "status": "ประจำ", "hire": "2015-04-01", "nid": "1820500031194", "children": null, "bank": "", "ssoNo": "", "id": "SEUS001", "projectId": null, "isDirector": true, "ssoReason": "นายจ้าง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS002", "name": "นายอรรถพล ยินดี", "nick": "ตั๋ง", "pos": "กรรมการ", "basis": "monthly", "freq": "monthly", "base": 125000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 125000.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 16666.67, "net": 108333.33, "cls": "overhead", "exemptAtt": true, "exemptSso": true, "status": "ประจำ", "hire": "2015-04-01", "nid": "1410100096420", "children": null, "bank": "", "ssoNo": "", "id": "SEUS002", "projectId": null, "isDirector": true, "ssoReason": "นายจ้าง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS003", "name": "นายธาตรี ดาวเรือง", "nick": "แอ๊ด", "pos": "หัวหน้าช่างชำนาญการ", "basis": "monthly", "freq": "semi", "base": 41000.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 7000.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 10000.0, "gross": 51000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 1891.67, "net": 48358.33, "cls": "overhead", "exemptAtt": true, "exemptSso": false, "status": "ประจำ", "hire": "2010-07-23", "nid": "3420200005538", "children": null, "bank": "", "ssoNo": "", "id": "SEUS003", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS004", "name": "นายกิตพิพัฒน์ นนทะนำ", "nick": "หน่อง", "pos": "หัวหน้าช่างอาวุโส", "basis": "monthly", "freq": "semi", "base": 25190.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 11000.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 14000.0, "gross": 39190.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 710.67, "net": 37729.33, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2010-06-01", "nid": "3460701101947", "children": null, "bank": "", "ssoNo": "", "id": "SEUS004", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS005", "name": "นายชวาลิต สิงขโรทัย", "nick": "เอก", "pos": "หัวหน้างาน", "basis": "monthly", "freq": "semi", "base": 25500.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 1000.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 4000.0, "gross": 29500.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 183.33, "net": 28566.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2015-08-03", "nid": "3919900155315", "children": null, "bank": "", "ssoNo": "", "id": "SEUS005", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS014", "name": "นางสาวสายรมย์ กงไธสง", "nick": "รมย์", "pos": "ช่างเทคนิค", "basis": "monthly", "freq": "semi", "base": 19928.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 19928.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 19178.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2015-06-04", "nid": "3440800884532", "children": null, "bank": "", "ssoNo": "", "id": "SEUS014", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS015", "name": "นายพล ไพพนม", "nick": "พล", "pos": "หัวหน้างาน", "basis": "monthly", "freq": "semi", "base": 26220.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 2500.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 5500.0, "gross": 31720.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 294.33, "net": 30675.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2015-06-04", "nid": "2340900016691", "children": null, "bank": "", "ssoNo": "", "id": "SEUS015", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS016", "name": "นายยงยุทธ พลฤทธิ์", "nick": "เซียง", "pos": "ช่างเทคนิค", "basis": "monthly", "freq": "semi", "base": 20500.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 20500.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 19750.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2012-06-20", "nid": "3410401184316", "children": null, "bank": "", "ssoNo": "", "id": "SEUS016", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS024", "name": "นายทรงยศ สุพรรณรัง", "nick": "จ่า", "pos": "หัวหน้างาน", "basis": "monthly", "freq": "semi", "base": 21500.0, "alw": {"ตำแหน่ง": 500.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 500.0, "gross": 22000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 21250.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2016-01-11", "nid": "1440800157928", "children": null, "bank": "", "ssoNo": "", "id": "SEUS024", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS030", "name": "นายอัครพล ศรีเนินกล้วย", "nick": "เพ็ง", "pos": "ช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 640.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 16640.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 15890.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2016-08-04", "nid": "1451500050975", "children": null, "bank": "", "ssoNo": "", "id": "SEUS030", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS037", "name": "นายอนุวัฒน์ ปงกาวงค์", "nick": "ต่อย", "pos": "วิศวกร", "basis": "monthly", "freq": "monthly", "base": 37800.0, "alw": {"ตำแหน่ง": 2200.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 2200.0, "gross": 40000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 791.67, "net": 38458.33, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2016-12-09", "nid": "1529900611415", "children": null, "bank": "", "ssoNo": "", "id": "SEUS037", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS038", "name": "นางสาวศศิธร อ่อนสำลี", "nick": "เจ", "pos": "เจ้าหน้าที่งานบุคคล / Admin / DCC", "basis": "monthly", "freq": "semi", "base": 25100.0, "alw": {"ตำแหน่ง": 1000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 500.0, "น้ำมัน": 0.0}, "alwTotal": 1500.0, "gross": 26600.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 38.33, "net": 25811.67, "cls": "overhead", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2017-02-01", "nid": "1209700215080", "children": null, "bank": "", "ssoNo": "", "id": "SEUS038", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS048", "name": "นางสาวดากานดา นราพร", "nick": "หนิง", "pos": "เจ้าหน้าที่บัญชีและการเงิน", "basis": "monthly", "freq": "monthly", "base": 25200.0, "alw": {"ตำแหน่ง": 1000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 500.0, "น้ำมัน": 0.0}, "alwTotal": 1500.0, "gross": 26700.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 43.33, "net": 25906.67, "cls": "overhead", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2017-05-03", "nid": "1210200031453", "children": null, "bank": "", "ssoNo": "", "id": "SEUS048", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS051", "name": "นายสมาน มีสา", "nick": "ติ๊ก", "pos": "ช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 708.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 3000.0, "gross": 21408.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 20658.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2017-08-01", "nid": "1471200323658", "children": null, "bank": "", "ssoNo": "", "id": "SEUS051", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS061", "name": "นางสาวสมาพร รัตนมูล", "nick": "แอน", "pos": "เจ้าหน้าที่ความปลอดภัย", "basis": "monthly", "freq": "semi", "base": 18250.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 18250.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 17500.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2018-07-01", "nid": "1340700084440", "children": null, "bank": "", "ssoNo": "", "id": "SEUS061", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS065", "name": "ว่าที่ ร.ต.อภิชาติ จันทร์ศิริ", "nick": "โอ", "pos": "วิศวกร", "basis": "monthly", "freq": "monthly", "base": 37800.0, "alw": {"ตำแหน่ง": 2200.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 2200.0, "gross": 40000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 791.67, "net": 38458.33, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2018-06-25", "nid": "1509900826276", "children": null, "bank": "", "ssoNo": "", "id": "SEUS065", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS081", "name": "นายบรรพต สุพรรณรัง", "nick": "แส", "pos": "ผู้ช่วยช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 532.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 13832.0, "sso": 691.6, "ssoEmployer": 691.6, "tax": 0.0, "net": 13140.4, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2019-05-10", "nid": "1440800087768", "children": null, "bank": "", "ssoNo": "", "id": "SEUS081", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS083", "name": "นางสาวเจลิสา มาวงษ์", "nick": "จอย", "pos": "เสมียน", "basis": "monthly", "freq": "semi", "base": 15500.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 500.0, "น้ำมัน": 7000.0}, "alwTotal": 7500.0, "gross": 23000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 22250.0, "cls": "overhead", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2019-06-17", "nid": "3210100625404", "children": null, "bank": "", "ssoNo": "", "id": "SEUS083", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS090", "name": "นายพงษ์พัฒน์ พรประทุม", "nick": "ตุ๊", "pos": "ช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 727.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 3000.0, "gross": 21902.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 21152.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2020-02-12", "nid": "1361000124245", "children": null, "bank": "", "ssoNo": "", "id": "SEUS090", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS092", "name": "นางสาวเพ็ญนิภา จันทร์ลี", "nick": "บุ๋ม", "pos": "เจ้าหน้าที่ความปลอดภัย", "basis": "monthly", "freq": "semi", "base": 18250.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 18250.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 17500.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2020-07-01", "nid": "1410100186011", "children": null, "bank": "", "ssoNo": "", "id": "SEUS092", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS093", "name": "นางสาวขนิษฐา มณีเนตร", "nick": "ปุ้มปุ้ย", "pos": "เจ้าหน้าที่ Store", "basis": "daily", "freq": "semi", "base": 519.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 13494.0, "sso": 674.7, "ssoEmployer": 674.7, "tax": 0.0, "net": 12819.3, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2021-01-04", "nid": "1103100212361", "children": null, "bank": "", "ssoNo": "", "id": "SEUS093", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS066", "name": "นายกิตติศักดิ์ เสียงเจริญ", "nick": "อ๊อด", "pos": "ผู้ช่วยช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 540.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 14040.0, "sso": 702.0, "ssoEmployer": 702.0, "tax": 0.0, "net": 13338.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2022-12-09", "nid": "3101800827796", "children": null, "bank": "", "ssoNo": "", "id": "SEUS066", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS102", "name": "นางสาวจุไรรัตน์ ภู่สมอินทร์", "nick": "หนูนา", "pos": "เจ้าหน้าที่เฝ้าระวังไฟ", "basis": "daily", "freq": "semi", "base": 484.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 12584.0, "sso": 629.2, "ssoEmployer": 629.2, "tax": 0.0, "net": 11954.8, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2023-01-27", "nid": "3240100637551", "children": null, "bank": "", "ssoNo": "", "id": "SEUS102", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS107", "name": "นายธีรวัฒน์ แก้วลังกา", "nick": "ไอซ์", "pos": "QC Inspector", "basis": "monthly", "freq": "monthly", "base": 32500.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 32500.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 333.33, "net": 31416.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2024-06-01", "nid": "1520400052711", "children": null, "bank": "", "ssoNo": "", "id": "SEUS107", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS108", "name": "นางสาวสุกานดา แก้วแสง", "nick": "ครีม", "pos": "QC DCC", "basis": "monthly", "freq": "monthly", "base": 25000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 25000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 24250.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2024-06-01", "nid": "1509901445969", "children": null, "bank": "", "ssoNo": "", "id": "SEUS108", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS114", "name": "นายธาราวรรษ ช่วยแสง", "nick": "อั๋น", "pos": "ช่างเชื่อม", "basis": "daily", "freq": "monthly", "base": 600.0, "alw": {"ตำแหน่ง": 1500.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 1500.0, "gross": 17100.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 16350.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2024-03-01", "nid": "1100703132480", "children": null, "bank": "", "ssoNo": "", "id": "SEUS114", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS129", "name": "นางสาววรัญญา เอี่ยมสะอาด", "nick": "มดดำ", "pos": "เจ้าหน้าที่ความปลอดภัย", "basis": "daily", "freq": "semi", "base": 600.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 15600.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 14850.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2024-10-16", "nid": "1230300015514", "children": null, "bank": "", "ssoNo": "", "id": "SEUS129", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS103", "name": "นางสาวสุคนฑมาส หน่อสีดา", "nick": "ยุ้ย", "pos": "จป. วิชาชีพ", "basis": "monthly", "freq": "monthly", "base": 30000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 30000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 208.33, "net": 29041.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2024-11-18", "nid": "1409900238049", "children": null, "bank": "", "ssoNo": "", "id": "SEUS103", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS137", "name": "นางสาวภัทราภรณ์ ผลทวี", "nick": "พร", "pos": "Admin", "basis": "monthly", "freq": "monthly", "base": 13000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 13000.0, "sso": 650.0, "ssoEmployer": 650.0, "tax": 0.0, "net": 12350.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2025-02-03", "nid": "1199600299932", "children": null, "bank": "", "ssoNo": "", "id": "SEUS137", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS139", "name": "นางสาวทนง วรรณสนธิ์", "nick": "แมว", "pos": "เจ้าหน้าที่ความปลอดภัย", "basis": "daily", "freq": "semi", "base": 400.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 10400.0, "sso": 520.0, "ssoEmployer": 520.0, "tax": 0.0, "net": 9880.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2025-02-04", "nid": "1411400008951", "children": null, "bank": "", "ssoNo": "", "id": "SEUS139", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS149", "name": "นายสาโรช วิลัยเลิศ", "nick": "ต้อม", "pos": "ผู้ช่วยช่างทั่วไป", "basis": "daily", "freq": "semi", "base": 480.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 12480.0, "sso": 624.0, "ssoEmployer": 624.0, "tax": 0.0, "net": 11856.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2025-05-03", "nid": "1199600070773", "children": null, "bank": "", "ssoNo": "", "id": "SEUS149", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS157", "name": "นายทนงศักดิ์ เกียล่น", "nick": "ป๊อป", "pos": "หัวหน้างาน", "basis": "daily", "freq": "monthly", "base": 800.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 3000.0, "gross": 23800.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 23050.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2025-12-01", "nid": "1520800008191", "children": null, "bank": "", "ssoNo": "", "id": "SEUS157", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS158", "name": "นายพรชัย อุผา", "nick": "ปิงปอง", "pos": "ช่างเทคนิค", "basis": "daily", "freq": "semi", "base": 680.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 3000.0, "gross": 20680.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 19930.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2025-12-01", "nid": "1480800043680", "children": null, "bank": "", "ssoNo": "", "id": "SEUS158", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS166", "name": "นางสาวเสาวคนธ์ ตันศิรืนาถกุล", "nick": "เสาร์", "pos": "Material Controller", "basis": "daily", "freq": "monthly", "base": 615.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 15990.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 15240.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ประจำ", "hire": "2026-02-09", "nid": "3219800064888", "children": null, "bank": "", "ssoNo": "", "id": "SEUS166", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS088", "name": "นายแมน ชาดศรี", "nick": "แมน", "pos": "หัวหน้าช่างอาวุโส", "basis": "monthly", "freq": "monthly", "base": 26000.0, "alw": {"ตำแหน่ง": 3000.0, "ประสบการณ์": 3000.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 6000.0, "gross": 32000.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 308.33, "net": 31691.67, "cls": "direct", "exemptAtt": false, "exemptSso": true, "status": "เกษียณอายุ", "hire": "2020-01-13", "nid": "3120101627461", "children": null, "bank": "", "ssoNo": "", "id": "SEUS088", "projectId": null, "isDirector": false, "ssoReason": "เกษียณ — จ่ายเอง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS009", "name": "นายสมนึก จันทรศิริ", "nick": "นึก", "pos": "ช่างทั่วไป", "basis": "monthly", "freq": "semi", "base": 17750.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 17750.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 0.0, "net": 17750.0, "cls": "direct", "exemptAtt": false, "exemptSso": true, "status": "เกษียณอายุ", "hire": "2013-02-01", "nid": "3220400540668", "children": null, "bank": "", "ssoNo": "", "id": "SEUS009", "projectId": null, "isDirector": false, "ssoReason": "เกษียณ — จ่ายเอง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS150", "name": "นายสมมาตร โคตรแก้ว", "nick": "มาตร", "pos": "QC Inspector", "basis": "monthly", "freq": "monthly", "base": 27000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 27000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 58.33, "net": 26191.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-01-05", "nid": "2310200037394", "children": null, "bank": "", "ssoNo": "", "id": "SEUS150", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS155", "name": "นายสุมิตร ปะติโก", "nick": "พายุ", "pos": "QC Inspector", "basis": "monthly", "freq": "semi", "base": 30000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 30000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 208.33, "net": 29041.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "ทดลองงาน", "hire": "2026-01-05", "nid": "1311000237490", "children": null, "bank": "", "ssoNo": "", "id": "SEUS155", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS130", "name": "นางสาวพรรณ์ธัญญาณ์ สังเสวก", "nick": "พรรณ", "pos": "เจ้าหน้าที่ความปลอดภัย", "basis": "daily", "freq": "semi", "base": 800.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 20800.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 20050.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2025-09-01", "nid": "3340100526898", "children": null, "bank": "", "ssoNo": "", "id": "SEUS130", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS147", "name": "นายอภิเดช ธุระพระ", "nick": "แฮ็ค", "pos": "QC", "basis": "monthly", "freq": "monthly", "base": 30000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 30000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 208.33, "net": 29041.67, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2025-04-01", "nid": "1419900596719", "children": null, "bank": "", "ssoNo": "", "id": "SEUS147", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "", "name": "นางสาวญาณัท วณิชญาภรณ์", "nick": "ป๊อปอาย", "pos": "Document Control", "basis": "monthly", "freq": "monthly", "base": 20000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 20000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 19250.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-01-01", "nid": "1309800160626", "children": null, "bank": "", "ssoNo": "", "id": "TMP041", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS160", "name": "นายพรชัย โอดมี", "nick": "โน่", "pos": "Instrument QC Technician", "basis": "daily", "freq": "monthly", "base": 850.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 22100.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 21350.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-01-15", "nid": "1620800014327", "children": null, "bank": "", "ssoNo": "", "id": "SEUS160", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS161", "name": "นายวีรภัทร สงขัย", "nick": "ซากิ", "pos": "Instrument QC Technician", "basis": "daily", "freq": "semi", "base": 800.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 20800.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 20050.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-01-15", "nid": "1628800026951", "children": null, "bank": "", "ssoNo": "", "id": "SEUS161", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS159", "name": "นายนำพล โคตรแก้ว", "nick": "", "pos": "EE QA/QC Inspector", "basis": "daily", "freq": "semi", "base": 800.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 20800.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 20050.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-02-02", "nid": "", "children": null, "bank": "", "ssoNo": "", "id": "SEUS159", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS167", "name": "นายฉัตรชัย ดวงนภา", "nick": "ฉัตร", "pos": "พนักงานขับรถ", "basis": "daily", "freq": "semi", "base": 500.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 13000.0, "sso": 0.0, "ssoEmployer": 0.0, "tax": 0.0, "net": 13000.0, "cls": "direct", "exemptAtt": false, "exemptSso": true, "status": "เกษียณอายุ", "hire": "2026-03-05", "nid": "3230100142462", "children": null, "bank": "", "ssoNo": "", "id": "SEUS167", "projectId": null, "isDirector": false, "ssoReason": "เกษียณ — จ่ายเอง", "punches": [], "acc": "", "spouse": false, "face": null}, {"code": "SEUS165", "name": "นางสาวจุฬารัตน์ หลักทรัพย์", "nick": "ยะหยา", "pos": "QA/QC DCC.", "basis": "monthly", "freq": "monthly", "base": 25000.0, "alw": {"ตำแหน่ง": 0.0, "ประสบการณ์": 0.0, "โทรศัพท์": 0.0, "น้ำมัน": 0.0}, "alwTotal": 0.0, "gross": 25000.0, "sso": 750.0, "ssoEmployer": 750.0, "tax": 0.0, "net": 24250.0, "cls": "direct", "exemptAtt": false, "exemptSso": false, "status": "สัญญาจ้าง", "hire": "2026-03-16", "nid": "1410100252812", "children": null, "bank": "", "ssoNo": "", "id": "SEUS165", "projectId": null, "isDirector": false, "ssoReason": "", "punches": [], "acc": "", "spouse": false, "face": null}];
+
+/* Five projects + Back Office. Back Office exists because a man waiting on a
+   tender is not idle — his hours are a real cost, and if they have nowhere to
+   go they silently vanish into overhead and nobody can price the next bid. */
+const PROJECTS = [
+  {id:'P1', code:'PRJ-01', name:'โครงการ 1', client:'—', kind:'project'},
+  {id:'P2', code:'PRJ-02', name:'โครงการ 2', client:'—', kind:'project'},
+  {id:'P3', code:'PRJ-03', name:'โครงการ 3', client:'—', kind:'project'},
+  {id:'P4', code:'PRJ-04', name:'โครงการ 4', client:'—', kind:'project'},
+  {id:'P5', code:'PRJ-05', name:'โครงการ 5', client:'—', kind:'project'},
+  {id:'BO', code:'BACK-OFFICE', name:'Back Office / รอประมูลงาน', client:'ชั่วโมงรวมกับทีมบัญชี', kind:'overhead'},
+];
+
+const SCH = {start:8*60, end:17*60, brk:60, grace:15, std:480};
+const MATCH_THRESHOLD = 0.50;   /* euclidean on 128-d. Lower = stricter. */
+
+let stream=null, camFor=null, models=false, matched=null, kycShots=[], detLoop=null, pending=null;
+
+const M = n => Math.round(n).toLocaleString('th-TH');
+const pad = n => String(n).padStart(2,'0');
+const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const tstr = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const cost = e => e.gross + e.ssoEmployer;
+const enrolled = () => EMP.filter(e=>e.face);
+
+const flags = e => {
+  const f=[];
+  if(!e.code) f.push('ไม่มีรหัสพนักงาน');
+  if(!e.nid) f.push('ไม่มีเลขบัตรประชาชน');
+  if(!e.bank) f.push('ไม่มีเลขบัญชีธนาคาร');
+  if(e.children===null) f.push('ไม่ได้ระบุจำนวนบุตร — หักภาษีเกิน');
+  if(!e.ssoNo && !e.exemptSso) f.push('ไม่มีเลขประกันสังคม');
+  if(!e.face) f.push('ยังไม่ลงทะเบียนใบหน้า');
+  return f;
+};
+
+/* ── Persistence: try localStorage; fall back to memory + manual save.
+      A tool that forgets everything on refresh is not a tool. ── */
+const KEY='seus.v1';
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(EMP.map(e=>({
+        id:e.id, code:e.code, nid:e.nid, bank:e.bank, acc:e.acc, ssoNo:e.ssoNo,
+        children:e.children, spouse:e.spouse, base:e.base, alw:e.alw,
+        face:e.face, punches:e.punches, projectId:e.projectId}))));
+      toast('ok','บันทึกแล้ว'); }
+  catch(err){ dl(); }
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY); if(!raw) return;
+    JSON.parse(raw).forEach(s=>{ const e=EMP.find(x=>x.id===s.id); if(e) Object.assign(e,s); });
+    EMP.forEach(recalc);
+  }catch(err){}
+}
+function dl(){
+  const b=new Blob([JSON.stringify(EMP,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+  a.download='seus-'+dstr(new Date())+'.json'; a.click();
+}
+
+/* ── Face models from CDN ── */
+async function loadModels(){
+  if(models) return true;
+  const U='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model';
+  await faceapi.nets.tinyFaceDetector.loadFromUri(U);
+  await faceapi.nets.faceLandmark68Net.loadFromUri(U);
+  await faceapi.nets.faceRecognitionNet.loadFromUri(U);
+  models=true; return true;
+}
+
+async function startCam(which){
+  if(!window.isSecureContext){
+    toast('no','เปิดผ่าน https:// ก่อน — เบราว์เซอร์ไม่ให้เปิดกล้องจากไฟล์ในเครื่อง', which);
+    return;
+  }
+  try{
+    const ph = which==='c'?'camph':'kcamph';
+    document.getElementById(ph).textContent='กำลังโหลดโมเดลใบหน้า…';
+    await loadModels();
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:640, height:480}});
+    const v = document.getElementById(which==='c'?'vid':'kvid');
+    v.srcObject = stream; camFor = which;
+    document.getElementById(ph).classList.add('hide');
+    document.getElementById(which==='c'?'hud':'khud').classList.remove('hide');
+    if(which==='c') detectLoop(); else kycLoop();
+  }catch(err){
+    toast('no','เปิดกล้องไม่ได้: '+err.message, which);
+  }
+}
+
+/* ── 1:N identification ── */
+async function detectLoop(){
+  const v=document.getElementById('vid'), cam=document.getElementById('cam');
+  clearInterval(detLoop);
+  detLoop = setInterval(async ()=>{
+    if(!v.videoWidth) return;
+    const d = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions({inputSize:320}))
+      .withFaceLandmarks().withFaceDescriptor();
+
+    if(!d){ matched=null; cam.className='cam bad';
+      document.getElementById('hudst').textContent='ไม่พบใบหน้า — มองตรงกล้อง';
+      document.getElementById('hudsc').textContent=''; gate(); return; }
+
+    let best=null, bd=99;
+    for(const e of enrolled()){
+      for(const f of e.face){
+        const dist = faceapi.euclideanDistance(d.descriptor, f);
+        if(dist<bd){ bd=dist; best=e; }
+      }
+    }
+
+    if(best && bd < MATCH_THRESHOLD){
+      matched = best; cam.className='cam ok';
+      document.getElementById('hudst').textContent = best.name;
+      document.getElementById('hudsc').textContent = 'ตรงกัน ' + (100-bd*100).toFixed(0) + '%';
+    }else{
+      matched=null; cam.className='cam bad';
+      document.getElementById('hudst').textContent = enrolled().length
+        ? 'ไม่พบใบหน้าที่ตรงกับใคร' : 'ยังไม่มีใครลงทะเบียนใบหน้า';
+      document.getElementById('hudsc').textContent = best ? bd.toFixed(2) : '';
+    }
+    gate();
+  }, 500);
+}
+
+/* The project gate. No project, no punch — for site staff.
+   An unallocated hour becomes overhead silently, and a year of that makes every
+   gross margin you report a work of fiction. */
+function gate(){
+  const p = document.getElementById('proj').value;
+  const ok = !!matched && !!p;
+  document.getElementById('bIn').disabled = !ok;
+  document.getElementById('bOut').disabled = !ok;
+}
+function projPicked(){
+  const s=document.getElementById('proj');
+  s.classList.toggle('need', !s.value); gate();
+}
+
+function doPunch(type){
+  const e = matched, pid = document.getElementById('proj').value;
+  if(!e || !pid) return;
+  const p = PROJECTS.find(x=>x.id===pid);
+  const now = new Date();
+  const open = isOpen(e);
+  if(type==='in' && open)  return toast('no', `${e.name} ลงเวลาเข้างานแล้ว — ยังไม่ได้ลงเวลาออก`);
+  if(type==='out' && !open) return toast('no', `${e.name} ยังไม่ได้ลงเวลาเข้างานวันนี้`);
+
+  navigator.geolocation?.getCurrentPosition(
+    pos => record(e,type,now,p,{lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy}),
+    ()  => record(e,type,now,p,null),
+    {enableHighAccuracy:true, timeout:8000}
+  ) ?? record(e,type,now,p,null);
+}
+
+function record(e,type,now,p,gps){
+  e.punches.push({date:dstr(now), time:tstr(now), min:now.getHours()*60+now.getMinutes(),
+    type, projectId:p.id, projectName:p.name, gps,
+    /* No GPS is a FLAG, never a rejection. A man inside a steel structure whose
+       phone cannot see a satellite must not lose a day's pay to physics. */
+    flags: gps?[]:['ไม่มีพิกัด GPS']});
+  const d = todayOf(e);
+  const late = d?.late ? ` · มาสาย ${d.late} นาที` : '';
+  toast('ok', `${type==='in'?'เข้างาน':'ออกงาน'} — ${e.name} · ${p.name} · ${tstr(now)}${late}${gps?'':' · ไม่มีพิกัด (ตั้งธง)'}`);
+  save(); board(); timesheet(); render(); summary();
+}
+
+/* ── KYC ── */
+async function kycLoop(){
+  const v=document.getElementById('kvid'), cam=document.getElementById('kcam');
+  clearInterval(detLoop);
+  detLoop = setInterval(async ()=>{
+    if(!v.videoWidth) return;
+    const d = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions({inputSize:320}))
+      .withFaceLandmarks().withFaceDescriptor();
+    pending = d || null;
+    cam.className = 'cam ' + (d?'ok':'bad');
+    document.getElementById('khudst').textContent = d ? 'พร้อมถ่าย' : 'ไม่พบใบหน้า';
+    document.getElementById('bShot').disabled = !d;
+  }, 400);
+}
+function kycReset(){ kycShots=[]; [0,1,2].forEach(i=>{
+  const s=document.getElementById('s'+i); s.className='shot';
+  s.innerHTML=`<span>${['หน้าตรง','เอียงซ้าย','เอียงขวา'][i]}</span>`; });
+  document.getElementById('bShot').textContent='ถ่ายภาพ (0/3)';
+}
+function capture(){
+  if(!pending) return;
+  const i = kycShots.length;
+  const v = document.getElementById('kvid');
+  const c = document.createElement('canvas');
+  c.width=120; c.height=120;
+  c.getContext('2d').drawImage(v,0,0,120,120);
+
+  kycShots.push(Array.from(pending.descriptor));
+  const s=document.getElementById('s'+i);
+  s.className='shot done';
+  s.innerHTML=`<img src="${c.toDataURL('image/jpeg',0.7)}"><span class="lb">${['หน้าตรง','เอียงซ้าย','เอียงขวา'][i]}</span>`;
+  document.getElementById('bShot').textContent=`ถ่ายภาพ (${kycShots.length}/3)`;
+
+  if(kycShots.length===3){
+    const e = EMP.find(x=>x.id===document.getElementById('kwho').value);
+
+    /* His own three samples must resemble each other. If they do not, the camera
+       saw two different people -- which happens when a colleague "helps" during
+       enrolment, and it poisons that man's face record for as long as he works here. */
+    let worst=0;
+    for(let a=0;a<3;a++) for(let b=a+1;b<3;b++)
+      worst = Math.max(worst, faceapi.euclideanDistance(kycShots[a], kycShots[b]));
+    if(worst > 0.55){
+      toast('no','ภาพ 3 ใบไม่เหมือนกันพอ — อาจมีคนอื่นเข้ามาในกรอบ ลองใหม่','k');
+      kycReset(); return;
+    }
+
+    /* And he must not already exist under another name. */
+    for(const other of enrolled()){
+      if(other.id===e.id) continue;
+      for(const f of other.face){
+        if(faceapi.euclideanDistance(kycShots[0], f) < MATCH_THRESHOLD){
+          toast('no',`ใบหน้านี้ตรงกับ ${other.name} ที่ลงทะเบียนไว้แล้ว — ตรวจสอบก่อน`,'k');
+          kycReset(); return;
+        }
+      }
+    }
+
+    e.face = kycShots.slice();
+    toast('ok', `ลงทะเบียนใบหน้า ${e.name} สำเร็จ`, 'k');
+    kycReset(); save(); kycList(); board(); render();
+  }
+}
+
+function toast(k,m,which){
+  const t=document.getElementById(which==='k'?'ktoast':'toast');
+  t.className='toast '+(k==='ok'?'ok':k==='wa'?'wa':'no'); t.textContent=m;
+  clearTimeout(window['_t'+(which||'c')]);
+  window['_t'+(which||'c')] = setTimeout(()=>t.className='toast', 7000);
+}
+
+/* ── Attendance maths — identical rules to the backend engine ── */
+function days(e){
+  const by={}; e.punches.forEach(p=>(by[p.date] ??= []).push(p));
+  return Object.entries(by).map(([date,ps])=>{
+    ps.sort((a,b)=>a.min-b.min);
+    const i=ps.find(p=>p.type==='in'), o=[...ps].reverse().find(p=>p.type==='out');
+    const proj = i?.projectName || o?.projectName || '—';
+    if(!i||!o) return {date, incomplete:true, worked:0, late:0, ot:0, in:i||null, out:o||null, proj};
+
+    /* The break is deducted even when nobody punched it. He ate. Everybody eats.
+       Not deducting it pays 60 minutes a day, per man, for nothing -- and once
+       the crew works that out, nobody ever punches lunch again. */
+    const worked = Math.max(0, o.min - i.min - SCH.brk);
+
+    /* Lateness is measured from 08:00, not from the end of the grace window.
+       Grace forgives lateness; it does not move the clock. 08:20 with 15 min
+       grace is 20 minutes late, not 5. */
+    const late = i.min > SCH.start + SCH.grace ? i.min - SCH.start : 0;
+
+    /* OT here is EVIDENCE, never payment. Payroll reads APPROVED OT claims.
+       Rounded DOWN to 30-min blocks -- rounding up is a decision about the
+       company's money and belongs to a human, not to Math.round(). */
+    let ot = Math.max(0, worked - SCH.std);
+    ot = ot < 30 ? 0 : Math.floor(ot/30)*30;
+    return {date, incomplete:false, worked, late, ot, in:i, out:o, proj};
+  }).sort((a,b)=>b.date.localeCompare(a.date));
+}
+const todayOf = e => days(e).find(d=>d.date===dstr(new Date()));
+const isOpen = e => { const p=e.punches.filter(x=>x.date===dstr(new Date()));
+  return p.length && p[p.length-1].type==='in'; };
+
+function recalc(e){
+  e.alwTotal = Object.values(e.alw).reduce((a,b)=>a+b,0);
+  e.gross = (e.basis==='daily'? e.base*26 : e.base) + e.alwTotal;
+  /* Both sides of SSO honour the exemption. Zeroing only the employee's
+     deduction while still accruing the employer's 5% inflates project cost for
+     ever -- and nobody audits a number that only ever grows. */
+  e.sso = e.exemptSso ? 0 : Math.min(Math.max(Math.min(e.gross,15000),1650)*0.05, 750);
+  e.ssoEmployer = e.sso;
+  e.tax = annualTax(e.gross*12, e.children||0, !!e.spouse)/12;
+  e.net = e.gross - e.sso - e.tax;
+}
+function annualTax(g, ch, sp){
+  const BR=[[0,150000,0],[150000,300000,5],[300000,500000,10],[500000,750000,15],
+            [750000,1000000,20],[1000000,2000000,25],[2000000,5000000,30],[5000000,null,35]];
+  const allow = 60000 + (sp?60000:0) + 30000*Math.min(ch,3);
+  let t = Math.max(0, g - Math.min(g*0.5,100000) - allow), tax=0;
+  for(const [lo,hi,r] of BR){ if(t<=lo) break; tax += ((hi===null?t:Math.min(t,hi))-lo)*r/100; }
+  return tax;
+}
+
+/* ── Views ── */
+function board(){
+  document.getElementById('today').textContent =
+    new Date().toLocaleDateString('th-TH',{weekday:'long',day:'numeric',month:'long'});
+  let nIn=0,nLate=0,nNone=0;
+  document.getElementById('board').innerHTML = EMP.map(e=>{
+    const d=todayOf(e); let cls='',st='ยังไม่ลงเวลา';
+    if(!e.face){ cls='nokyc'; st='ยังไม่ลงทะเบียนใบหน้า'; }
+    if(e.exemptAtt) cls += ' exempt';
+    if(d && d.in && !d.out){ cls = d.late?'late':'in'; nIn++; if(d.late) nLate++;
+      st = `เข้า ${d.in.time} · ${d.proj}` + (d.late?` · สาย ${d.late} น.`:''); }
+    else if(d && d.in && d.out){ cls='out'; nIn++; if(d.late) nLate++;
+      st = `${d.in.time}–${d.out.time} · ${(d.worked/60).toFixed(1)} ชม.`; }
+    else if(!e.exemptAtt && e.face) nNone++;
+    return `<div class="pcell ${cls}" onclick="openEmp('${e.id}')">
+      <div class="nm">${e.name}</div><div class="st">${st}</div></div>`;
+  }).join('');
+  document.getElementById('k-in').textContent=nIn;
+  document.getElementById('k-late').textContent=nLate;
+  document.getElementById('k-none').textContent=nNone;
+  document.getElementById('k-kyc').textContent=enrolled().length+' / '+EMP.length;
+}
+
+function kycList(){
+  document.getElementById('k-done').textContent = enrolled().length;
+  document.getElementById('k-todo').textContent = EMP.length - enrolled().length;
+  document.getElementById('kyclist').innerHTML = EMP.map(e=>`<tr>
+    <td><b>${e.name}</b></td><td style="color:var(--ink-3)">${e.pos}</td>
+    <td>${e.face ? '<span class="chip g">ลงทะเบียนแล้ว · 3 มุม</span>'
+                 : '<span class="chip r">ยังไม่ลงทะเบียน</span>'}</td></tr>`).join('');
+  document.getElementById('kwho').innerHTML = EMP.map(e=>
+    `<option value="${e.id}">${e.face?'✓ ':''}${e.name} — ${e.pos}</option>`).join('');
+}
+
+function timesheet(){
+  document.getElementById('ts').innerHTML = EMP.map(e=>{
+    const D=days(e), w=D.reduce((s,d)=>s+d.worked,0), lt=D.reduce((s,d)=>s+d.late,0),
+          ot=D.reduce((s,d)=>s+d.ot,0), last=D[0];
+    const pj=[...new Set(D.map(d=>d.proj))].filter(x=>x!=='—');
+    return `<tr onclick="openEmp('${e.id}')" style="cursor:pointer">
+      <td><b>${e.name}</b>${e.exemptAtt?' <span class="chip">ไม่คิดเวลา</span>':''}</td>
+      <td class="num">${D.length||'—'}</td>
+      <td class="num">${w?(w/60).toFixed(1):'—'}</td>
+      <td class="num" style="color:${lt?'#B67B12':'var(--ink-3)'}">${lt||'—'}</td>
+      <td class="num" style="color:${ot?'var(--indigo)':'var(--ink-3)'}">${ot?(ot/60).toFixed(1):'—'}</td>
+      <td>${pj.length?pj.map(p=>`<span class="chip">${p}</span>`).join(' '):'<span style="color:var(--ink-3)">—</span>'}</td>
+      <td>${last ? (last.incomplete?'<span class="chip r">ลืมลงเวลาออก</span>'
+             : `<span class="chip g">${last.date} ${last.in.time}–${last.out.time}</span>`)
+           : '<span class="chip">ยังไม่มีข้อมูล</span>'}</td></tr>`;
+  }).join('');
+}
+
+const roles = L => { const c={}; L.forEach(e=>c[e.pos]=(c[e.pos]||0)+1);
+  return Object.entries(c).sort((a,b)=>b[1]-a[1]).slice(0,3); };
+
+/* A man's project membership is the project he most recently punched into.
+   Nothing is invented: if he never punched, he is not in a project. */
+function projOf(e){
+  const last = e.punches[e.punches.length-1];
+  return last ? last.projectId : null;
+}
+const inProj = id => EMP.filter(e=>projOf(e)===id);
+
+function render(){
+  document.getElementById('k-hc').textContent = EMP.length;
+  document.getElementById('k-cost').textContent = M(EMP.reduce((s,e)=>s+cost(e),0));
+
+  const T=EMP.length;
+  const ring=(n,c)=>{const r=25,C=2*Math.PI*r,p=T?n/T:0;
+    return `<div class="ring2"><svg width="58" height="58" viewBox="0 0 58 58">
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="#EDF4F6" stroke-width="6"/>
+      <circle cx="29" cy="29" r="${r}" fill="none" stroke="${c}" stroke-width="6" stroke-linecap="round"
+        stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p)}"/></svg><b>${n}</b></div>`;};
+
+  const cards = PROJECTS.map(p=>{
+    const L=inProj(p.id), bo = p.kind==='overhead';
+    return `<button class="card ${bo?'bo':''}" onclick="openProject('${p.id}')">
+      <div class="code">${p.code}</div><h3>${p.name}</h3>
+      <div class="client">${bo?'ชั่วโมงรวมกับทีมบัญชี — ค่าดำเนินงาน':p.client}</div>
+      <div class="foot">${ring(L.length, bo?'#5B4FE9':'#22BFD3')}
+        <div class="cost"><span>บาท / เดือน</span><b>${M(L.reduce((s,e)=>s+cost(e),0))}</b></div></div>
+      <div class="roles">${roles(L).map(([r,c])=>`<span class="chip">${r} ×${c}</span>`).join('')
+        || '<span class="chip">ยังไม่มีใครลงเวลา</span>'}</div></button>`;
+  });
+
+  const none = EMP.filter(e=>!projOf(e));
+  if(none.length) cards.push(`<button class="card" style="border:2px solid var(--amber)"
+    onclick="openProject(null)">
+    <div class="code" style="color:#B67B12">NO-PUNCH</div>
+    <h3>ยังไม่ได้ลงเวลา</h3><div class="client">ยังไม่มีโครงการ — ต้นทุนไม่มีที่ลง</div>
+    <div class="foot">${ring(none.length,'#F6B43C')}
+      <div class="cost"><span>บาท / เดือน</span><b>${M(none.reduce((s,e)=>s+cost(e),0))}</b></div></div>
+    <div class="roles">${roles(none).map(([r,c])=>`<span class="chip a">${r} ×${c}</span>`).join('')}</div></button>`);
+
+  document.getElementById('grid').innerHTML = cards.join('');
+  document.getElementById('proj').innerHTML =
+    '<option value="">— เลือกโครงการ —</option>' +
+    PROJECTS.map(p=>`<option value="${p.id}">${p.code} — ${p.name}</option>`).join('');
+}
+
+/* ── Drawers ── */
+function openEmp(id){
+  const e=EMP.find(x=>x.id===id), D=days(e);
+  const w=D.reduce((s,d)=>s+d.worked,0), lt=D.reduce((s,d)=>s+d.late,0), ot=D.reduce((s,d)=>s+d.ot,0);
+  document.getElementById('drawer').innerHTML=`
+    <div class="dh"><div><h2>${e.name}</h2>
+      <div class="m">${e.code||'ยังไม่มีรหัส'} · ${e.pos} · ${e.basis==='daily'?'รายวัน':'รายเดือน'} · ${e.freq==='semi'?'จ่ายครึ่งเดือน':'จ่ายรายเดือน'}</div></div>
+      <button class="x" onclick="closeD()">×</button></div>
+    <div class="dstats">
+      <div class="ds"><div class="k">ใบหน้า</div><div class="v" style="color:${e.face?'var(--green)':'var(--rose)'};font-size:14px">${e.face?'ลงทะเบียนแล้ว':'ยังไม่ลงทะเบียน'}</div></div>
+      <div class="ds"><div class="k">วันที่ลงเวลา</div><div class="v">${D.length}</div></div>
+      <div class="ds"><div class="k">ชม.รวม</div><div class="v">${(w/60).toFixed(1)}</div></div>
+      <div class="ds"><div class="k">สาย (นาที)</div><div class="v" style="color:${lt?'#B67B12':'inherit'}">${lt}</div></div>
+      <div class="ds"><div class="k">OT หลักฐาน</div><div class="v" style="color:var(--indigo)">${(ot/60).toFixed(1)}</div></div>
+    </div>
+    <div class="db">
+      <div class="erow"><div><div class="nm">ข้อมูลพนักงาน</div>
+        <div class="ps">${flags(e).length?flags(e).join(' · '):'ข้อมูลครบถ้วน'}</div></div>
+        <div class="rt">${M(e.gross)}<small>รวมรายได้ / เดือน</small></div>
+        <button class="mini" onclick="editEmp('${e.id}')">แก้ไข</button></div>
+      <div id="host-${e.id}"></div>
+      <div class="panel"><h3>ประวัติการลงเวลา${e.exemptAtt?' <span style="font-weight:400;font-size:12px;color:var(--ink-3)">— บันทึกไว้ ไม่คิดเงิน</span>':''}</h3>
+      ${D.length?`<div class="tw"><table><thead><tr><th>วันที่</th><th>เข้า</th><th>ออก</th>
+        <th>โครงการ</th><th class="num">ชม.</th><th class="num">สาย</th><th class="num">OT</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>${D.map(d=>`<tr><td class="mono">${d.date}</td>
+          <td class="mono">${d.in?d.in.time:'—'}</td>
+          <td class="mono">${d.out?d.out.time:'<span style="color:var(--rose)">—</span>'}</td>
+          <td>${d.proj}</td>
+          <td class="num">${d.incomplete?'—':(d.worked/60).toFixed(1)}</td>
+          <td class="num" style="color:${d.late?'#B67B12':'var(--ink-3)'}">${d.late||'—'}</td>
+          <td class="num" style="color:${d.ot?'var(--indigo)':'var(--ink-3)'}">${d.ot?(d.ot/60).toFixed(1):'—'}</td>
+          <td>${d.incomplete?'<span class="chip r">ลืมลงเวลาออก — หัวหน้าต้องตรวจ</span>'
+            : (d.in.flags?.length?'<span class="chip a">'+d.in.flags.join(' · ')+'</span>':'<span class="chip g">ปกติ</span>')}</td>
+        </tr>`).join('')}</tbody></table></div>`
+        :'<div style="padding:36px;text-align:center;color:var(--ink-3)">ยังไม่มีการลงเวลา</div>'}</div>
+    </div>`;
+  openD();
+}
+
+function openProject(id){
+  const p = PROJECTS.find(x=>x.id===id);
+  const list = id===null ? EMP.filter(e=>!projOf(e)) : inProj(id);
+  const title = id===null ? 'ยังไม่ได้ลงเวลา' : p.name;
+  document.getElementById('drawer').innerHTML=`
+    <div class="dh"><div><h2>${title}</h2>
+      <div class="m">${id===null?'ยังไม่มีโครงการ':p.code+' · '+p.client}</div></div>
+      <button class="x" onclick="closeD()">×</button></div>
+    <div class="dstats">
+      <div class="ds"><div class="k">พนักงาน</div><div class="v">${list.length}</div></div>
+      <div class="ds"><div class="k">ต้นทุน / เดือน</div><div class="v" style="color:var(--indigo)">${M(list.reduce((s,e)=>s+cost(e),0))}</div></div>
+      <div class="ds"><div class="k">ข้อมูลไม่ครบ</div><div class="v" style="color:${list.filter(e=>flags(e).length).length?'var(--rose)':'var(--green)'}">${list.filter(e=>flags(e).length).length}</div></div>
+    </div>
+    <div class="db">${list.length?list.map(e=>`
+      <div class="erow"><div><div class="nm">${e.name}${flags(e).length?'<span class="dot"></span>':''}</div>
+        <div class="ps">${e.pos} · ${e.basis==='daily'?'รายวัน':'รายเดือน'}${e.exemptSso?' · ปกส.ยกเว้น ('+e.ssoReason+')':''}</div></div>
+        <div class="rt">${M(e.gross)}<small>รวมรายได้ / เดือน</small></div>
+        <button class="mini" onclick="openEmp('${e.id}')">ดูเวลา</button>
+        <button class="mini" onclick="editEmp('${e.id}')">แก้ไข</button></div>
+      <div id="host-${e.id}"></div>`).join('')
+      :'<div style="padding:40px;text-align:center;color:var(--ink-3)">ยังไม่มีใครลงเวลาในโครงการนี้</div>'}</div>`;
+  openD();
+}
+
+function editEmp(id){
+  const e=EMP.find(x=>x.id===id);
+  const host=document.getElementById('host-'+id);
+  if(host.innerHTML){host.innerHTML='';return;}
+  host.innerHTML=`<div class="edit"><div class="fg">
+    <div class="f req"><label>รหัสพนักงาน</label><input id="q-code" value="${e.code}" placeholder="SEUS168"></div>
+    <div class="f req"><label>เลขบัตรประชาชน</label><input id="q-nid" value="${e.nid}" placeholder="13 หลัก"></div>
+    <div class="f req"><label>ธนาคาร</label><select id="q-bank"><option value="">— เลือก —</option>
+      ${['KBANK','SCB','BBL','KTB','BAY','TTB','GSB'].map(b=>`<option ${e.bank===b?'selected':''}>${b}</option>`).join('')}</select></div>
+    <div class="f req"><label>เลขที่บัญชี</label><input id="q-acc" value="${e.acc||''}" placeholder="ตัวเลขล้วน"></div>
+    <div class="f ${e.exemptSso?'':'req'}"><label>เลข ปกส.</label>
+      <input id="q-sso" value="${e.ssoNo}" placeholder="${e.exemptSso?'ยกเว้น — '+e.ssoReason:'13 หลัก'}" ${e.exemptSso?'disabled':''}></div>
+    <div class="f req"><label>จำนวนบุตร</label><input type="number" min="0" id="q-ch" value="${e.children??''}" placeholder="0"></div>
+    <div class="f"><label>คู่สมรส</label><select id="q-sp">
+      <option value="0" ${!e.spouse?'selected':''}>โสด / คู่สมรสมีรายได้</option>
+      <option value="1" ${e.spouse?'selected':''}>คู่สมรสไม่มีรายได้</option></select></div>
+    <div class="f"><label>ค่าแรงฐาน (${e.basis==='daily'?'บาท/วัน':'บาท/เดือน'})</label><input type="number" id="q-base" value="${e.base}"></div>
+    <div class="f"><label>ค่าตำแหน่ง</label><input type="number" id="q-a1" value="${e.alw['ตำแหน่ง']}"></div>
+    <div class="f"><label>ค่าประสบการณ์</label><input type="number" id="q-a2" value="${e.alw['ประสบการณ์']}"></div>
+    <div class="f"><label>ค่าโทรศัพท์</label><input type="number" id="q-a3" value="${e.alw['โทรศัพท์']}"></div>
+    <div class="f"><label>ค่าน้ำมัน</label><input type="number" id="q-a4" value="${e.alw['น้ำมัน']}"></div>
+  </div><div class="ef">
+    <button class="btn cy" onclick="saveEmp('${id}')">บันทึก</button>
+    <button class="btn" onclick="document.getElementById('host-${id}').innerHTML=''">ยกเลิก</button>
+    <span style="font-size:11.5px;color:var(--ink-3);align-self:center">ช่องขอบแดง = ว่าง และจะบล็อกการรันเงินเดือน</span>
+  </div></div>`;
+}
+function saveEmp(id){
+  const e=EMP.find(x=>x.id===id), g=k=>document.getElementById('q-'+k)?.value.trim()??'';
+  e.code=g('code'); e.nid=g('nid'); e.bank=g('bank'); e.acc=g('acc');
+  if(!e.exemptSso) e.ssoNo=g('sso');
+  const ch=g('ch'); e.children = ch===''?null:parseInt(ch,10);
+  e.spouse = g('sp')==='1'; e.base=+g('base')||0;
+  e.alw={'ตำแหน่ง':+g('a1')||0,'ประสบการณ์':+g('a2')||0,'โทรศัพท์':+g('a3')||0,'น้ำมัน':+g('a4')||0};
+  recalc(e); save(); render(); summary(); board(); timesheet();
+  document.getElementById('host-'+id).innerHTML='';
+}
+function openD(){document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');}
+function closeD(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeD();});
+
+/* ── IMPORT: reads the register file you already use. No reformatting. ──
+   The columns below are EXACTLY the ones in ประวัติพนักงาน.xlsx, sheet
+   "Database", header on row 3. Nothing was renamed to suit the code -- the code
+   was written to suit the file, because the file is what your HR actually keeps. */
+const COLS = {
+  code:'รหัสพนักงาน', prefix:'คำนำหน้า', first:'ชื่อ', last:'นามสกุล', nick:'ชื่อเล่น',
+  pos:'ตำแหน่ง', nid:'เลขประจำตัวประชาชน', dob:'วันเกิด', sex:'เพศ', phone:'เบอร์โทร',
+  hire:'วันที่เริ่มงาน', basis:'รายวัน\n/รายเดือน', freq:'การรับเงินเดือน',
+  status:'สถานะการจ้าง', base:'ค่าแรง (ฐาน)',
+  a1:'ค่าตำแหน่ง', a2:'ค่าประสบการณ์', a3:'ค่าโทรศัพท์', a4:'ค่าน้ำมัน',
+};
+let staged = null;
+
+document.getElementById('file').onchange = e => e.target.files[0] && readFile(e.target.files[0]);
+const drop = document.getElementById('drop');
+['dragover','dragenter'].forEach(k=>drop.addEventListener(k,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(k=>drop.addEventListener(k,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop', e => e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]));
+
+function nidOk(s){
+  s = String(s||'').replace(/\D/g,'');
+  if(s.length!==13) return false;
+  let sum=0; for(let i=0;i<12;i++) sum += +s[i]*(13-i);
+  return (11-(sum%11))%10 === +s[12];
+}
+
+function readFile(f){
+  const r = new FileReader();
+  r.onload = ev => {
+    const wb = XLSX.read(ev.target.result, {type:'array'});
+    const sh = wb.Sheets['Database'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sh, {range:2, defval:''});   // header row 3
+    dryRun(rows.filter(r => r[COLS.first] || r[COLS.code]));
+  };
+  r.readAsArrayBuffer(f);
+}
+
+/* DRY RUN FIRST. ALWAYS.
+   You will get a dirty sheet on the first attempt. Every company does.
+   So: complain loudly here, and write nothing until a human has looked. */
+function dryRun(rows){
+  const ok=[], bad=[];
+  rows.forEach((r,i)=>{
+    const errs=[];
+    const code = String(r[COLS.code]||'').trim();
+    const name = `${r[COLS.prefix]||''}${r[COLS.first]||''} ${r[COLS.last]||''}`.trim();
+    if(!code || code==='-') errs.push('ไม่มีรหัสพนักงาน — ระบบจะออกรหัสถัดไปให้');
+    if(!nidOk(r[COLS.nid])) errs.push('เลขบัตรประชาชนไม่ผ่าน checksum 13 หลัก');
+    const base = +String(r[COLS.base]).replace(/[^\d.]/g,'');
+    if(!base) errs.push('ค่าแรงฐานไม่ใช่ตัวเลข');
+    (errs.length?bad:ok).push({row:i+4, code, name, errs, raw:r, base});
+  });
+  staged = {ok, bad};
+
+  const known = ok.filter(x=>EMP.some(e=>e.code===x.code)).length;
+  document.getElementById('dryout').innerHTML = `
+    <div class="blk"><span class="sev ok">READ</span><div>
+      <h5>อ่านได้ ${rows.length} แถว · ผ่าน ${ok.length} · ต้องแก้ ${bad.length}</h5>
+      <p>อัปเดตของเดิม ${known} คน · เพิ่มใหม่ ${ok.length-known} คน</p></div></div>
+    ${bad.map(b=>`<div class="blk"><span class="sev block">แถว ${b.row}</span>
+      <div><h5>${b.name||'(ไม่มีชื่อ)'} ${b.code?'· '+b.code:''}</h5>
+        <p>${b.errs.join(' · ')}</p></div></div>`).join('')}
+    ${bad.length?'':'<div class="blk"><span class="sev ok">OK</span><div><h5>ไม่มีข้อผิดพลาด</h5><p>กด “นำเข้าจริง” เพื่อบันทึก</p></div></div>'}`;
+  document.getElementById('dry').classList.remove('hide');
+}
+
+function applyImport(){
+  if(!staged) return;
+  let upd=0, add=0;
+  staged.ok.forEach(x=>{
+    const r=x.raw;
+    let e = EMP.find(v=>v.code===x.code);
+    if(!e){
+      /* Blank code -> issue the next one and REPORT it. Never silently. */
+      const code = x.code || 'SEUS'+String(168+add).padStart(3,'0');
+      e = {id:code, code, name:x.name, nick:r[COLS.nick]||'', pos:r[COLS.pos]||'',
+        basis:'monthly', freq:'monthly', base:0, alw:{'ตำแหน่ง':0,'ประสบการณ์':0,'โทรศัพท์':0,'น้ำมัน':0},
+        cls:'direct', exemptAtt:false, exemptSso:false, ssoReason:'', isDirector:false,
+        nid:'', bank:'', acc:'', ssoNo:'', children:null, spouse:false,
+        punches:[], face:null, projectId:null, status:'', hire:''};
+      EMP.push(e); add++;
+    } else upd++;
+
+    e.pos    = r[COLS.pos] || e.pos;
+    e.nid    = String(r[COLS.nid]||'').replace(/\D/g,'');
+    e.basis  = String(r[COLS.basis]).includes('รายวัน') ? 'daily' : 'monthly';
+    e.freq   = String(r[COLS.freq]).trim()==='วิค' ? 'semi' : 'monthly';   // "วิค" = ครึ่งเดือน
+    e.base   = x.base;
+    e.alw    = {'ตำแหน่ง':+r[COLS.a1]||0, 'ประสบการณ์':+r[COLS.a2]||0,
+                'โทรศัพท์':+r[COLS.a3]||0, 'น้ำมัน':+r[COLS.a4]||0};
+    recalc(e);
+  });
+  toast('ok', `นำเข้าสำเร็จ — อัปเดต ${upd} คน · เพิ่มใหม่ ${add} คน`);
+  document.getElementById('dry').classList.add('hide');
+  staged=null; save(); render(); summary(); board(); timesheet(); kycList();
+  tab('s');
+}
+
+/* The template IS the file they already keep. Same sheet name, same headers,
+   same row 3. A template that forces HR to rebuild their register is a template
+   that will be ignored. */
+function dlTemplate(){
+  const hdr = Object.values(COLS);
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['SEUS Engineering — ทะเบียนประวัติพนักงาน'],
+    ['หัวตารางอยู่แถวที่ 3 · ห้ามสลับลำดับคอลัมน์ · วันที่ = YYYY-MM-DD · เลขบัตร 13 หลักไม่มีขีด · ค่าแรงเป็นตัวเลขล้วน'],
+    hdr,
+    ['SEUS168','นาย','สมชาย','ใจดี','ชาย','ช่างไฟฟ้า','1103700123456','1990-05-12','ชาย','0812345678',
+     '2026-01-15','รายวัน','วิค','ประจำ',600,0,0,0,0],
+  ]);
+  ws['!cols'] = hdr.map(h=>({wch: Math.max(12, Math.min(22, h.length+4))}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Database');
+  XLSX.writeFile(wb, 'SEUS_ทะเบียนพนักงาน_template.xlsx');
+}
+
+/* ── Summary ── */
+function summary(){
+  const S=(a,f)=>a.reduce((s,x)=>s+f(x),0);
+  document.getElementById('s-cnt').textContent = `พนักงาน ${EMP.length} คน · รอบ 2026-07`;
+  document.getElementById('s-g').textContent = M(S(EMP,e=>e.gross));
+  document.getElementById('s-e').textContent = M(S(EMP,e=>e.ssoEmployer));
+  document.getElementById('s-n').textContent = M(S(EMP,e=>e.net));
+
+  document.getElementById('s-x').innerHTML = EMP.filter(e=>e.exemptSso).map(e=>`<tr>
+    <td><b>${e.name}</b></td><td style="color:var(--ink-3)">${e.pos}</td>
+    <td><span class="chip ${e.isDirector?'i':'a'}">${e.ssoReason}</span></td>
+    <td class="num" style="color:var(--green)">0.00</td>
+    <td class="num" style="color:var(--green)">0.00</td></tr>`).join('') +
+    `<tr style="background:#F7FBFC"><td colspan="3"><b>ลูกจ้างที่หัก ปกส. ตามปกติ</b></td>
+     <td class="num"><b>${M(S(EMP,e=>e.sso))}</b></td><td class="num"><b>${M(S(EMP,e=>e.ssoEmployer))}</b></td></tr>`;
+
+  const d=EMP.filter(e=>e.cls==='direct'), o=EMP.filter(e=>e.cls==='overhead');
+  document.getElementById('s-c').innerHTML = [
+    ['ต้นทุนโครงการ', d, 'Cost of Sales — เหนือเส้นกำไรขั้นต้น'],
+    ['ค่าดำเนินงาน',  o, 'Operating Expense — ใต้เส้นกำไรขั้นต้น'],
+  ].map(([n,a,w])=>`<tr><td>${n}</td><td class="num">${a.length}</td>
+    <td class="num">${M(S(a,e=>e.gross))}</td><td class="num">${M(S(a,e=>e.ssoEmployer))}</td>
+    <td class="num" style="color:var(--indigo);font-weight:600">${M(S(a,cost))}</td>
+    <td style="color:var(--ink-3);font-size:12.5px">${w}</td></tr>`).join('');
+
+  const noKyc=EMP.filter(e=>!e.face).length, nb=EMP.filter(e=>!e.bank).length,
+        nc=EMP.filter(e=>e.children===null).length, ns=EMP.filter(e=>!e.ssoNo&&!e.exemptSso).length,
+        nn=EMP.filter(e=>!nidOk(e.nid)).length, npj=EMP.filter(e=>!projOf(e)).length;
+
+  document.getElementById('s-b').innerHTML = [
+    noKyc && ['block',`ยังไม่ลงทะเบียนใบหน้า — ${noKyc} คน`,'ลงเวลาด้วยใบหน้าไม่ได้'],
+    npj && ['block',`ยังไม่มีโครงการ (ไม่เคยลงเวลา) — ${npj} คน`,'ต้นทุนไม่มีที่ลง และจะไหลไปเป็นค่าดำเนินงานเงียบ ๆ ทำหนึ่งปี กำไรขั้นต้นทุกโครงการที่รายงานคือเรื่องแต่ง'],
+    nb && ['block',`ไม่มีเลขบัญชีธนาคาร — ${nb} คน`,'จ่ายเงินไม่ได้'],
+    nc && ['block',`ไม่ได้ระบุจำนวนบุตร — ${nc} คน`,'ไม่ใช่ “ปลอดภัยไว้ก่อน” — มันหักภาษีเกิน ช่างที่มีลูก 2 คนและคู่สมรสไม่มีรายได้ เสียลดหย่อน 120,000/ปี เขาได้คืนตอนยื่นเดือนมีนาคม แต่เขาต้องใช้เงินตอนพฤศจิกายน'],
+    nn && ['warn',`เลขบัตรประชาชนไม่ผ่าน checksum — ${nn} คน`,'ตรวจ 13 หลัก'],
+    ns && ['warn',`ไม่มีเลข ปกส. — ${ns} คน`,'จ่ายเงินได้ แต่ยื่น สปส.1-10 ไม่ได้'],
+    ['ok','กรรมการ 3 คนเป็นนายจ้าง — ไม่หัก ปกส. ทั้งสองฝั่ง','บุญมา · อาณัติ · อรรถพล — ตัดทั้งฝั่งหักและฝั่งสมทบนายจ้าง เพราะเงินสมทบนายจ้างเป็นต้นทุนบริษัท ไม่ใช่รายการหัก ตัดแค่ฝั่งเดียวจะพองต้นทุนไปตลอด'],
+    ['ok','Back Office — ชั่วโมงรวมกับทีมบัญชี','คนรอประมูลงานไม่ได้ว่าง ชั่วโมงของเขาคือต้นทุนจริง ถ้าไม่มีที่ลงมันจะหายไปในค่าโสหุ้ยเงียบ ๆ แล้วคุณจะตั้งราคางานถัดไปไม่ถูก'],
+    ['warn','จ่ายครึ่งเดือน 28 คน — กับดักหักซ้ำ','ปกส. เพดาน 750 บาท/เดือน หักทั้งสองงวด = เกินกฎหมายเท่าตัว ระบบหักเฉพาะงวดที่ 2 บนฐานรวมทั้งเดือน'],
+  ].filter(Boolean).map(([s,t,dd])=>`<div class="blk"><span class="sev ${s}">${s.toUpperCase()}</span>
+    <div><h5>${t}</h5><p>${dd}</p></div></div>`).join('');
+}
+
+function tab(t){
+  ['c','k','p','t','i','s'].forEach(k=>{
+    document.getElementById('v-'+k).classList.toggle('hide', k!==t);
+    document.getElementById('t-'+k).setAttribute('aria-selected', k===t);
+  });
+  if(t!=='c' && t!=='k'){ clearInterval(detLoop); stream?.getTracks().forEach(x=>x.stop()); stream=null; }
+}
+
+setInterval(()=>{ const d=new Date();
+  document.getElementById('clk').textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; },1000);
+
+if(!window.isSecureContext) document.getElementById('ctx').classList.remove('hide');
+load(); render(); summary(); board(); timesheet(); kycList();
+</script>
+</body>
+</html>
