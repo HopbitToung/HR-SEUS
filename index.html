@@ -6,6 +6,9 @@
 <title>SEUS — ลงเวลาด้วยใบหน้า</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{--cyan:#22BFD3;--cyan-d:#16A8BC;--cyan-l:#E4F7FA;--indigo:#5B4FE9;--indigo-l:#ECEAFE;
 --amber:#F6B43C;--amber-l:#FEF3E0;--rose:#EF6B6B;--rose-l:#FDECEC;--green:#3CC28A;--green-l:#E4F7EF;
@@ -102,6 +105,24 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 .pcell .st{font-family:'IBM Plex Mono';font-size:10.5px;margin-top:4px;color:var(--ink-3)}
 #boot{position:fixed;inset:0;background:var(--bg);z-index:99;display:grid;place-items:center;padding:20px}
 #boot .card{max-width:560px;box-shadow:var(--sh)}
+.drop{border:2.5px dashed #C3DBE3;border-radius:12px;padding:26px 16px;text-align:center;background:#F7FBFC;cursor:pointer;transition:.16s;margin-top:14px}
+.drop:hover,.drop.over{border-color:var(--cyan);background:var(--cyan-l)}
+.drop b{display:block;font-size:15px;margin-bottom:3px}
+.drop span{font-size:12.5px;color:var(--ink-3)}
+#mapwrap{position:fixed;inset:0;z-index:60;background:rgba(20,35,42,.6);display:none;place-items:center;padding:16px}
+#mapwrap.open{display:grid}
+#mapbox{background:#fff;border-radius:var(--r);width:min(760px,100%);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+#mapbox h3{padding:14px 18px;border-bottom:1px solid var(--line);font-size:16px;font-weight:600;display:flex;align-items:center}
+#mapbox h3 .x{margin-left:auto;font-size:24px;color:var(--ink-3);cursor:pointer}
+#map{height:min(420px,46vh);width:100%}
+#mapbox .ft{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+#mapbox .ft .co{font-family:'IBM Plex Mono';font-size:12.5px;color:var(--ink-2);flex:1;min-width:170px}
+#mapbox .ft input{width:100px;padding:9px 10px;border-radius:9px;border:1.5px solid var(--line);font-size:13.5px}
+.autoproj{padding:14px 15px;border-radius:12px;margin-top:10px;font-size:14px}
+.autoproj.ok{background:var(--green-l);color:#2A9169}
+.autoproj.warn{background:var(--amber-l);color:#B67B12}
+.autoproj.err{background:var(--rose-l);color:#C94545}
+.autoproj b{display:block;font-size:16px;margin-bottom:2px}
 #err{position:fixed;left:12px;right:12px;bottom:12px;z-index:98;background:#7F1D1D;color:#fff;padding:12px 14px;
   border-radius:10px;font-family:'IBM Plex Mono';font-size:12px;display:none;max-height:34vh;overflow:auto}
 @media(max-width:760px){
@@ -165,9 +186,13 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   </div>
   <div class="g3">
     <div class="panel"><h3>บันทึกเวลา <span class="chip mono" id="clk">--:--:--</span></h3><div class="in">
-      <label class="fl">โครงการ <b style="color:var(--rose)">*</b></label>
-      <select id="proj" class="need" onchange="onProj()"></select>
-      <div id="geo" style="margin-top:9px;font-size:12.5px;color:var(--ink-3)"></div>
+      <div class="autoproj err" id="autoproj"><b>กำลังอ่านพิกัด…</b>
+        <span>ระบบจะระบุโครงการจากตำแหน่งที่คุณยืนอยู่</span></div>
+      <button class="btn" style="width:100%;margin-top:8px" onclick="detectProject()">อ่านพิกัดใหม่</button>
+      <div id="fallback" class="hide" style="margin-top:10px">
+        <label class="fl">ไม่พบโครงการที่ตรงกับพิกัด — เลือกเอง (จะถูกตั้งธงให้หัวหน้าตรวจ)</label>
+        <select id="proj" onchange="gate()"></select>
+      </div>
       <div class="cam" id="cam" style="margin-top:12px">
         <video id="vid" autoplay muted playsinline></video><div class="ring"></div>
         <div class="ph" id="ph">กดเปิดกล้อง</div>
@@ -212,6 +237,18 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
         <option value="exempt">ผู้บริหาร — ลงเวลาได้ ไม่นำมาคิด</option>
       </select>
       <button class="btn go" style="width:100%;margin-top:14px;min-height:48px" onclick="addEmp()">เพิ่มเข้าทะเบียน</button>
+
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <b style="font-size:14px">นำเข้าทีละหลายคน</b>
+          <button class="btn cy" style="margin-left:auto" onclick="dlTemplate()">ดาวน์โหลด Template</button>
+        </div>
+        <div class="drop" id="drop" onclick="document.getElementById('rfile').click()">
+          <b>ลากไฟล์มาวาง หรือกดเพื่อเลือก</b>
+          <span>.xlsx / .csv — คอลัมน์: รหัสพนักงาน · ชื่อ-นามสกุล · ตำแหน่ง · ประเภท</span>
+        </div>
+        <input type="file" id="rfile" accept=".xlsx,.xls,.csv" class="hide">
+      </div>
       <div class="toast" id="atoast"></div>
     </div></div>
     <div class="panel"><h3>รายชื่อ</h3><div class="tw"><table>
@@ -258,6 +295,20 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   <div class="cards" id="grid"></div>
 </div>
 
+<div id="mapwrap" onclick="if(event.target.id==='mapwrap')closeMap()">
+  <div id="mapbox">
+    <h3><span id="mtitle">ตั้งพิกัดโครงการ</span><span class="x" onclick="closeMap()">×</span></h3>
+    <div id="map"></div>
+    <div class="ft">
+      <div class="co" id="mcoord">แตะบนแผนที่เพื่อวางหมุด</div>
+      <input type="number" id="mrad" min="50" step="10" value="200" title="รัศมี (เมตร)">
+      <span style="font-size:12.5px;color:var(--ink-3)">เมตร</span>
+      <button class="btn" onclick="mapHere()">ตำแหน่งฉัน</button>
+      <button class="btn go" onclick="saveMap()">บันทึกพิกัด</button>
+    </div>
+  </div>
+</div>
+
 <!-- TIMESHEET -->
 <div id="v-t" class="hide">
   <div class="head"><div><h2>ตารางเวลาทำงาน</h2>
@@ -300,7 +351,7 @@ import { getFirestore, collection, doc, setDoc, addDoc, deleteDoc, onSnapshot, s
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v5';
+const VERSION='v6';
 
 const SCH={start:480,end:1020,brk:60,grace:15,std:480};
 const THRESHOLD=0.50;
@@ -326,7 +377,7 @@ const FIREBASE_CONFIG = {
 let db=null, auth=null, uid=null;
 let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
-let GPS=null;
+let GPS=null, autoProj=null, map=null, marker=null, circle=null, mapPid=null, mapLL=null;
 
 /* ── Firestore does not support nested arrays. ──────────────────────────────
    A face is three 128-number vectors. The obvious shape — [[...],[...],[...]] —
@@ -390,6 +441,7 @@ function boot(){
       document.getElementById('boot').classList.add('hide');
       document.getElementById('cloud').textContent='● '+(u.email||'เชื่อมต่อแล้ว')+' · '+VERSION;
       listen();
+      detectProject();
     }else{
       document.getElementById('boot').classList.remove('hide');
       const b=document.getElementById('blogin'); if(b) b.disabled=false;
@@ -478,25 +530,137 @@ function distM(a,b,c,d){
   return 2*R*Math.asin(Math.sqrt(h));
 }
 
-window.onProj=()=>{ askGps(); gate(); };
-function askGps(){
-  const p=PROJ.find(x=>x.id===$('proj').value);
-  const g=$('geo');
-  if(!p){ g.textContent=''; return; }
-  if(p.lat==null){ g.innerHTML='<span class="chip a">โครงการนี้ยังไม่ได้ตั้งพิกัด</span>'; return; }
-  g.innerHTML='<span class="chip">กำลังอ่านพิกัด…</span>';
-  navigator.geolocation?.getCurrentPosition(pos=>{
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE PROJECT IS NOT A CHOICE. IT IS A FACT, AND THE GPS ALREADY KNOWS IT.
+
+   A dropdown asks a tired man at 07:28 to remember which of five projects he is
+   standing on. He will get it wrong, and the cost lands on the wrong job — which
+   is worse than no cost at all, because a wrong number looks exactly like a right
+   one on a margin report.
+
+   So: the phone reads its position, the system finds the geofence he is inside,
+   and it TELLS him where he is. He confirms by punching.
+
+   The dropdown only reappears when the GPS cannot answer — outside every fence,
+   or no signal at all. And when it does reappear, whatever he picks is FLAGGED,
+   because a self-declared location is a claim, not evidence.
+   ═══════════════════════════════════════════════════════════════════════════ */
+window.detectProject=()=>{
+  const el=$('autoproj'), fb=$('fallback');
+  autoProj=null;
+
+  if(!navigator.geolocation){
+    el.className='autoproj err';
+    el.innerHTML='<b>เบราว์เซอร์ไม่รองรับ GPS</b><span>เลือกโครงการเองด้านล่าง</span>';
+    fb.classList.remove('hide'); gate(); return;
+  }
+
+  el.className='autoproj warn';
+  el.innerHTML='<b>กำลังอ่านพิกัด…</b><span>ยืนอยู่กลางแจ้งจะแม่นกว่า</span>';
+
+  navigator.geolocation.getCurrentPosition(pos=>{
     GPS={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
-    const d=Math.round(distM(GPS.lat,GPS.lng,p.lat,p.lng));
-    const budget=p.radius+GPS.acc;
-    const inside=d<=budget;
-    g.innerHTML = inside
-      ? `<span class="chip g">อยู่ในพื้นที่ ${p.name} · ห่าง ${d} ม.</span>`
-      : `<span class="chip a">อยู่นอกพื้นที่ ${d-p.radius} ม. — ลงเวลาได้ แต่จะถูกตั้งธงให้หัวหน้าตรวจ</span>`;
-  }, ()=>{ GPS=null;
-    g.innerHTML='<span class="chip a">อ่านพิกัดไม่ได้ — ลงเวลาได้ แต่จะไม่มีพิกัดกำกับ</span>';
-  }, {enableHighAccuracy:true,timeout:8000,maximumAge:15000});
+
+    /* Every project whose fence contains him, nearest first.
+       The GPS accuracy is ADDED to the radius: inside a steel structure the
+       reported accuracy IS the error, and a man must not be refused for the
+       physics of the building he was told to work in. */
+    const hits = PROJ
+      .filter(p=>p.lat!=null)
+      .map(p=>({p, d:Math.round(distM(GPS.lat,GPS.lng,p.lat,p.lng))}))
+      .filter(x=>x.d <= (x.p.radius||200) + GPS.acc)
+      .sort((a,b)=>a.d-b.d);
+
+    if(hits.length===1 || (hits.length>1 && hits[1].d - hits[0].d > 50)){
+      autoProj = hits[0].p;
+      el.className='autoproj ok';
+      el.innerHTML=`<b>${autoProj.name}</b><span>${autoProj.code} · ห่างจุดกึ่งกลาง ${hits[0].d} ม. · แม่นยำ ±${GPS.acc} ม.</span>`;
+      fb.classList.add('hide');
+    }
+    else if(hits.length>1){
+      /* Two fences overlap here and we cannot honestly say which. Ask —
+         guessing between them would silently mis-cost one of the two jobs. */
+      el.className='autoproj warn';
+      el.innerHTML='<b>อยู่ในพื้นที่ทับซ้อน '+hits.length+' โครงการ</b><span>เลือกเองด้านล่าง</span>';
+      fb.classList.remove('hide');
+      $('proj').innerHTML=hits.map(x=>`<option value="${x.p.id}">${x.p.code} — ${x.p.name} (${x.d} ม.)</option>`).join('');
+    }
+    else{
+      const nearest = PROJ.filter(p=>p.lat!=null)
+        .map(p=>({p,d:Math.round(distM(GPS.lat,GPS.lng,p.lat,p.lng))}))
+        .sort((a,b)=>a.d-b.d)[0];
+      el.className='autoproj err';
+      el.innerHTML = nearest
+        ? `<b>อยู่นอกพื้นที่ทุกโครงการ</b><span>ใกล้สุด: ${nearest.p.name} · ห่าง ${nearest.d} ม.</span>`
+        : '<b>ยังไม่มีโครงการใดตั้งพิกัด</b><span>ไปที่แท็บ “โครงการ + พิกัด”</span>';
+      fb.classList.remove('hide');
+      fillFallback();
+    }
+    gate();
+  }, err=>{
+    GPS=null;
+    $('autoproj').className='autoproj err';
+    $('autoproj').innerHTML='<b>อ่านพิกัดไม่ได้</b><span>'+
+      (err.code===1?'ไม่ได้อนุญาตให้ใช้ตำแหน่ง':'สัญญาณ GPS ไม่พอ')+
+      ' — เลือกโครงการเอง (จะถูกตั้งธง)</span>';
+    fb.classList.remove('hide'); fillFallback(); gate();
+  }, {enableHighAccuracy:true, timeout:12000, maximumAge:10000});
+};
+
+function fillFallback(){
+  $('proj').innerHTML='<option value="">— เลือกโครงการ —</option>'+
+    PROJ.map(p=>`<option value="${p.id}">${p.code} — ${p.name}</option>`).join('');
 }
+
+/* ── Map picker: Leaflet + OpenStreetMap. No API key, no billing. ── */
+window.openMap=id=>{
+  const p=PROJ.find(x=>x.id===id);
+  mapPid=id; mapLL = p.lat!=null ? [p.lat,p.lng] : null;
+  $('mtitle').textContent='ตั้งพิกัด — '+p.name;
+  $('mrad').value = p.radius||200;
+  $('mapwrap').classList.add('open');
+
+  setTimeout(()=>{
+    const center = mapLL || [12.6891, 101.2394];   // Rayong, as a starting view only
+    if(!map){
+      map=L.map('map').setView(center, mapLL?16:11);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+      map.on('click', e=>place(e.latlng.lat, e.latlng.lng));
+    }else{
+      map.setView(center, mapLL?16:11);
+    }
+    map.invalidateSize();
+    if(mapLL) place(mapLL[0], mapLL[1]); else { marker&&map.removeLayer(marker); circle&&map.removeLayer(circle); marker=circle=null; }
+  }, 80);
+};
+
+function place(lat,lng){
+  mapLL=[lat,lng];
+  const r=Math.max(50, parseInt($('mrad').value,10)||200);
+  if(marker) marker.setLatLng(mapLL); else marker=L.marker(mapLL,{draggable:true}).addTo(map)
+    .on('dragend', e=>place(e.target.getLatLng().lat, e.target.getLatLng().lng));
+  if(circle) circle.setLatLng(mapLL).setRadius(r);
+  else circle=L.circle(mapLL,{radius:r,color:'#22BFD3',fillColor:'#22BFD3',fillOpacity:.15}).addTo(map);
+  $('mcoord').textContent=`${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+$('mrad').oninput=()=>{ if(mapLL) place(mapLL[0], mapLL[1]); };
+
+window.mapHere=()=>{
+  navigator.geolocation?.getCurrentPosition(
+    pos=>{ place(pos.coords.latitude,pos.coords.longitude); map.setView([pos.coords.latitude,pos.coords.longitude],17); },
+    e=>alert('อ่านพิกัดไม่ได้: '+e.message), {enableHighAccuracy:true,timeout:10000});
+};
+window.saveMap=async()=>{
+  if(!mapLL) return alert('แตะบนแผนที่เพื่อวางหมุดก่อน');
+  const p=PROJ.find(x=>x.id===mapPid);
+  await setDoc(doc(db,'projects',mapPid), {...p,
+    lat:+mapLL[0].toFixed(6), lng:+mapLL[1].toFixed(6),
+    radius: Math.max(50, parseInt($('mrad').value,10)||200)});
+  closeMap();
+  toast('ok','บันทึกพิกัด '+p.name+' แล้ว');
+};
+window.closeMap=()=>$('mapwrap').classList.remove('open');
 
 /* ── Camera / face ── */
 async function loadModels(){
@@ -706,15 +870,25 @@ async function finishEnrol(){
 }
 
 /* ── Punch ── */
+function currentProject(){
+  if(autoProj) return {p:autoProj, declared:false};
+  const id=$('proj')?.value;
+  const p=PROJ.find(x=>x.id===id);
+  /* declared = he told us where he is, rather than the GPS proving it.
+     That is a claim, and it is recorded as one. */
+  return p ? {p, declared:true} : null;
+}
 function gate(){
-  const ok=!!matched && !!$('proj').value;
+  const c=currentProject();
+  const ok=!!matched && !!c;
   $('bIn').disabled=!ok; $('bOut').disabled=!ok;
-  $('proj').classList.toggle('need', !$('proj').value);
 }
 
 window.doPunch=async type=>{
-  const e=matched, p=PROJ.find(x=>x.id===$('proj').value);
-  if(!e||!p) return;
+  const c=currentProject();
+  const e=matched;
+  if(!e||!c) return;
+  const p=c.p;
   const now=new Date();
   if(type==='in'&&isOpen(e))   return toast('no',e.name+' ลงเวลาเข้างานแล้ว');
   if(type==='out'&&!isOpen(e)) return toast('no',e.name+' ยังไม่ได้ลงเวลาเข้างาน');
@@ -722,27 +896,91 @@ window.doPunch=async type=>{
   let d=null, inside=null;
   if(GPS && p.lat!=null){
     d=Math.round(distM(GPS.lat,GPS.lng,p.lat,p.lng));
-    inside = d <= p.radius + GPS.acc;
+    inside = d <= (p.radius||200) + GPS.acc;
   }
 
-  /* Outside the fence is a FLAG, never a refusal.
-     A man inside a steel structure whose phone cannot see a satellite must not
-     lose a day's pay to physics. The coordinate is for a supervisor to check
-     afterwards — it is not a condition of being paid. */
+  /* Outside the fence is a FLAG, never a refusal. A man inside a steel structure
+     whose phone cannot see a satellite must not lose a day's pay to physics.
+     The coordinate exists so a supervisor can check afterwards — it is not a
+     condition of being paid. */
   await addDoc(collection(db,'punches'), {
     code:e.code, name:e.name, type,
     date:dstr(now), time:tstr(now), min:now.getHours()*60+now.getMinutes(),
     projectId:p.id, projectName:p.name,
     lat:GPS?.lat??null, lng:GPS?.lng??null, acc:GPS?.acc??null,
     distanceM:d, insideGeofence:inside,
+    declared: c.declared,          // ← true = he picked it himself; GPS did not confirm
     ts: serverTimestamp(), by: uid
   });
 
-  const msg = inside===true ? ' · อยู่ในพื้นที่'
-            : inside===false ? ` · นอกพื้นที่ ${d-p.radius} ม. (ตั้งธง)`
+  const how = c.declared ? ' · เลือกเอง (ตั้งธง)'
+            : inside===true ? ' · ยืนยันด้วย GPS'
             : ' · ไม่มีพิกัด (ตั้งธง)';
-  toast('ok',`${type==='in'?'เข้างาน':'ออกงาน'} — ${e.name} · ${p.name} · ${tstr(now)}${msg}`);
+  toast('ok',`${type==='in'?'เข้างาน':'ออกงาน'} — ${e.name} · ${p.name} · ${tstr(now)}${how}`);
 };
+
+/* ── Roster import ─────────────────────────────────────────────────────────
+   A template that forces HR to rebuild their list is a template nobody uses.
+   Four columns, and only two of them are required. ── */
+window.dlTemplate=()=>{
+  const ws=XLSX.utils.aoa_to_sheet([
+    ['SEUS — นำเข้ารายชื่อพนักงาน'],
+    ['หัวตารางอยู่แถวที่ 3 · ประเภท: หน้างาน / แบ็คออฟฟิศ / ผู้บริหาร (เว้นว่าง = หน้างาน)'],
+    ['รหัสพนักงาน','ชื่อ-นามสกุล','ตำแหน่ง','ประเภท'],
+    ['SEUS001','นายสมชาย ใจดี','ช่างไฟฟ้า','หน้างาน'],
+    ['SEUS002','นางสาวมาลี สดใส','เจ้าหน้าที่บัญชี','แบ็คออฟฟิศ'],
+  ]);
+  ws['!cols']=[{wch:16},{wch:30},{wch:24},{wch:14}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'พนักงาน');
+  XLSX.writeFile(wb,'SEUS_รายชื่อพนักงาน_template.xlsx');
+};
+
+const dz=$('drop');
+['dragover','dragenter'].forEach(k=>dz.addEventListener(k,e=>{e.preventDefault();dz.classList.add('over');}));
+['dragleave','drop'].forEach(k=>dz.addEventListener(k,e=>{e.preventDefault();dz.classList.remove('over');}));
+dz.addEventListener('drop',e=>e.dataTransfer.files[0]&&readRoster(e.dataTransfer.files[0]));
+$('rfile').onchange=e=>e.target.files[0]&&readRoster(e.target.files[0]);
+
+function readRoster(f){
+  const r=new FileReader();
+  r.onload=async ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const sh=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(sh,{range:2,defval:''});
+
+      const KIND={'หน้างาน':'direct','แบ็คออฟฟิศ':'overhead','ผู้บริหาร':'exempt'};
+      let added=0, skipped=0, bad=[];
+
+      for(const [i,row] of rows.entries()){
+        const code=String(row['รหัสพนักงาน']||'').trim();
+        const name=String(row['ชื่อ-นามสกุล']||'').trim();
+        if(!code&&!name) continue;
+        if(!code||!name){ bad.push(`แถว ${i+4}: ${!code?'ไม่มีรหัส':'ไม่มีชื่อ'}`); continue; }
+        if(EMP.some(x=>x.code===code)){ skipped++; continue; }
+
+        const kind=KIND[String(row['ประเภท']||'').trim()]||'direct';
+        await setDoc(doc(db,'employees',code),{
+          code, name,
+          pos: String(row['ตำแหน่ง']||'').trim()||'—',
+          cls: kind==='overhead'?'overhead':'direct',
+          exempt: kind==='exempt',
+          face:null, createdAt: serverTimestamp()
+        });
+        added++;
+      }
+
+      /* Say exactly what happened, including what was refused and why.
+         An import that reports only its successes is an import you cannot trust. */
+      let msg=`นำเข้า ${added} คน`;
+      if(skipped) msg+=` · ข้าม ${skipped} คน (รหัสซ้ำ)`;
+      if(bad.length) msg+=` · ผิดพลาด ${bad.length} แถว: `+bad.slice(0,3).join(', ');
+      toast(bad.length?'no':'ok', msg, 'a');
+    }catch(err){ toast('no','อ่านไฟล์ไม่ได้: '+err.message,'a'); }
+  };
+  r.readAsArrayBuffer(f);
+}
 
 /* ── Attendance maths — identical rules to the backend engine ── */
 function punchesOf(code){ return PUNCH.filter(p=>p.code===code); }
@@ -818,8 +1056,6 @@ function lists(){
         `<option value="${e.code}">${faceVecs(e).length?'✓ ':''}${e.code} — ${e.name}${e.pos!=='—'?' ('+e.pos+')':''}</option>`).join('')
     : '<option value="">ยังไม่มีใครในทะเบียน</option>';
 
-  $('proj').innerHTML='<option value="">— เลือกโครงการ —</option>'+
-    PROJ.map(p=>`<option value="${p.id}">${p.code} — ${p.name}${p.lat==null?' (ยังไม่มีพิกัด)':''}</option>`).join('');
 }
 
 function grid(){
@@ -833,9 +1069,8 @@ function grid(){
         ? `📍 ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`
         : '<span class="chip a">ยังไม่ได้ตั้งพิกัด</span>'}</div>
       <div class="row">
-        <input type="number" min="50" value="${p.radius||200}" onchange="setRadius('${p.id}',this.value)"
-          title="รัศมี (เมตร)">
-        <button class="btn cy" onclick="setHere('${p.id}')">ใช้ตำแหน่งปัจจุบัน</button>
+        <button class="btn cy" style="flex:1" onclick="openMap('${p.id}')">📍 ตั้งพิกัดบนแผนที่</button>
+        <button class="btn" onclick="setHere('${p.id}')">ตำแหน่งฉัน</button>
       </div>
       <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">
         รัศมี ${p.radius||200} ม. — โรงงานใหญ่ 150–300 · ไซต์เล็ก 80–150<br>
@@ -893,6 +1128,7 @@ window.tab=t=>{
     $('t-'+k).setAttribute('aria-selected',k===t);
   });
   if(t!=='c'&&t!=='f'){ clearInterval(loop); stream?.getTracks().forEach(x=>x.stop()); stream=null; }
+  if(t==='c') detectProject();
 };
 function all(){ board(); lists(); grid(); timesheet(); }
 
