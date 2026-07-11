@@ -506,7 +506,12 @@ window.startCam=async w=>{
     $(w==='c'?'vid':'fvid').srcObject=stream;
     $(w==='c'?'ph':'fph').classList.add('hide');
     $(w==='c'?'hud':'fhud').classList.remove('hide');
-    if(w==='f'){ $('fstep').classList.remove('hide'); log('เปิดกล้องแล้ว'); }
+    if(w==='f'){
+      $('fstep').classList.remove('hide');
+      /* Live from the moment the camera is. Not "when a background loop feels ready". */
+      $('bShot').disabled=false;
+      log('เปิดกล้องแล้ว — กดปุ่มถ่ายภาพได้เลย');
+    }
     w==='c' ? idLoop() : enrolLoop();
   }catch(err){ toast('no','เปิดกล้องไม่ได้: '+err.message, w); log('เปิดกล้องล้มเหลว: '+err.message,'e'); }
 };
@@ -518,10 +523,11 @@ function idLoop(){
     if(!v.videoWidth||busy) return;
     busy=true;
     try{
-      const d=await faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions({inputSize:320}))
+      const d=await faceapi.detectSingleFace(v,
+          new faceapi.TinyFaceDetectorOptions({inputSize:416, scoreThreshold:0.3}))
         .withFaceLandmarks().withFaceDescriptor();
       if(!d){ matched=null; cam.className='cam bad';
-        $('hst').textContent='ไม่พบใบหน้า'; $('hsc').textContent=''; return gate(); }
+        $('hst').textContent='ไม่พบใบหน้า — เข้าใกล้กล้องขึ้น'; $('hsc').textContent=''; return gate(); }
       let best=null,bd=99;
       for(const e of EMP){ if(!e.face) continue;
         for(const f of e.face){ const x=faceapi.euclideanDistance(d.descriptor, Float32Array.from(f));
@@ -540,19 +546,27 @@ function idLoop(){
 function enrolLoop(){
   const v=$('fvid'), cam=$('fcam');
   clearInterval(loop);
+  /* This loop exists ONLY to give the man a green ring so he knows he is framed.
+     It does NOT gate the shutter.
+
+     The old version disabled the button until this loop happened to be holding a
+     detection. On a phone the loop is slow and drops frames constantly, so the
+     button spent most of its life greyed out and the man concluded the camera was
+     broken. He was right to. A shutter that is usually disabled is a broken camera.
+
+     Now: the shutter is ALWAYS live, and detection happens on the still frame at
+     the moment he presses it. */
   loop=setInterval(async()=>{
     if(!v.videoWidth||busy) return;
     busy=true;
     try{
-      const d=await faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions({inputSize:320}))
-        .withFaceLandmarks().withFaceDescriptor();
-      pending=d||null;
+      const d=await faceapi.detectSingleFace(v,
+        new faceapi.TinyFaceDetectorOptions({inputSize:320, scoreThreshold:0.3}));
       cam.className='cam '+(d?'ok':'bad');
-      $('fhst').textContent = d?'พร้อมถ่าย — กดปุ่มด้านล่าง':'ไม่พบใบหน้า';
-      $('bShot').disabled = !d || shots.length>=3;
-    }catch(err){ log('detect: '+err.message,'e'); }
+      $('fhst').textContent = d?'เห็นใบหน้าแล้ว — กดถ่ายได้เลย':'ขยับให้ใบหน้าอยู่ในวงกลม';
+    }catch(err){ /* guidance only — never let this break the shutter */ }
     finally{ busy=false; }
-  },400);
+  },500);
 }
 
 function shotReset(){
@@ -562,33 +576,68 @@ function shotReset(){
     s.innerHTML=`<span>${['หน้าตรง','เอียงซ้าย','เอียงขวา'][i]}</span>`;
   }
   $('bShot').textContent='ถ่ายภาพ (0/3)';
+  $('bShot').disabled = !stream;      // live whenever the camera is
   if($('fstep')) $('fstep').textContent='1 / 3 — '+ANGLES[0];
 }
 
-window.capture=()=>{
+window.capture=async()=>{
+  const btn=$('bShot');
   try{
+    btn.disabled=true;
     log('กดถ่ายภาพ…');
-    if(!pending){ log('ไม่พบใบหน้าในเฟรมนี้','w'); return toast('no','ยังไม่พบใบหน้า','f'); }
+
+    const v=$('fvid');
+    if(!v.videoWidth){ log('กล้องยังไม่พร้อม (videoWidth=0)','e');
+      toast('no','กล้องยังไม่พร้อม — รอสักครู่แล้วลองใหม่','f'); return; }
     if(shots.length>=3){ log('ครบ 3 ใบแล้ว','w'); return; }
 
-    const i=shots.length, v=$('fvid');
-    const c=document.createElement('canvas'); c.width=120; c.height=120;
-    c.getContext('2d').drawImage(v,0,0,120,120);
-    shots.push(Array.from(pending.descriptor));
-    log(`เก็บใบที่ ${i+1} สำเร็จ (${shots.length}/3)`);
+    /* Snapshot the LIVE FRAME to a canvas, then detect on that still image.
+       Detecting on a <video> element mid-playback is where phones fail: the
+       frame can change underneath the detector, and the promise resolves against
+       a frame the man never saw. A still image cannot move. */
+    const full=document.createElement('canvas');
+    full.width=v.videoWidth; full.height=v.videoHeight;
+    full.getContext('2d').drawImage(v,0,0);
+    log(`จับภาพ ${full.width}×${full.height} — กำลังตรวจใบหน้า…`);
 
-    const s=$('s'+i); s.className='shot done';
-    s.innerHTML=`<img src="${c.toDataURL('image/jpeg',.7)}"><span class="lb">${['หน้าตรง','เอียงซ้าย','เอียงขวา'][i]}</span>`;
-    $('bShot').textContent=`ถ่ายภาพ (${shots.length}/3)`;
+    const d=await faceapi.detectSingleFace(full,
+        new faceapi.TinyFaceDetectorOptions({inputSize:416, scoreThreshold:0.3}))
+      .withFaceLandmarks().withFaceDescriptor();
+
+    if(!d){
+      log('ไม่พบใบหน้าในภาพนี้ — ขยับเข้าใกล้ / หาที่สว่างกว่านี้','e');
+      toast('no','ไม่พบใบหน้า — เข้าใกล้กล้องขึ้น และหาที่สว่างกว่านี้','f');
+      return;
+    }
+    log('พบใบหน้า (คะแนน '+d.detection.score.toFixed(2)+')');
+
+    const i=shots.length;
+    shots.push(Array.from(d.descriptor));
+
+    const thumb=document.createElement('canvas');
+    thumb.width=120; thumb.height=120;
+    thumb.getContext('2d').drawImage(full,0,0,120,120);
+
+    const s=$('s'+i);
+    s.className='shot done';
+    s.innerHTML=`<img src="${thumb.toDataURL('image/jpeg',.7)}"><span class="lb">${['หน้าตรง','เอียงซ้าย','เอียงขวา'][i]}</span>`;
+    btn.textContent=`ถ่ายภาพ (${shots.length}/3)`;
+    log(`เก็บใบที่ ${i+1} สำเร็จ (${shots.length}/3)`);
 
     if(shots.length<3){
       $('s'+shots.length).classList.add('now');
       $('fstep').textContent=`${shots.length+1} / 3 — ${ANGLES[shots.length]}`;
       return;
     }
+
     log('ครบ 3 ใบ — กำลังตรวจสอบและบันทึกขึ้น Firebase…');
-    finishEnrol();
-  }catch(err){ showErr('capture: '+err.message); log('capture: '+err.message,'e'); }
+    await finishEnrol();
+  }catch(err){
+    showErr('capture: '+err.message);
+    log('capture ล้มเหลว: '+err.message,'e');
+  }finally{
+    btn.disabled = shots.length>=3 ? true : false;
+  }
 };
 
 async function finishEnrol(){
