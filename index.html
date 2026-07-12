@@ -181,6 +181,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   <button id="t-m" aria-selected="false" onclick="tab('m')" class="hide">บัญชี / การเงิน</button>
   <button id="t-s" aria-selected="false" onclick="tab('s')" class="hide">สลิปเงินเดือน</button>
   <button id="t-u" aria-selected="false" onclick="tab('u')" class="hide">สิทธิ์ผู้ใช้</button>
+  <button id="t-n" aria-selected="false" onclick="tab('n')" class="hide">แจ้งเตือน</button>
   <button class="btn rd hide" id="outbtn2" onclick="doLogout()" style="margin-left:auto">ออกจากระบบ</button>
 </nav>
 
@@ -328,9 +329,10 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   <div class="head"><div><h2>ตารางเวลาทำงาน</h2>
     <p>08:00–17:00 · พัก 60 นาที · ผ่อนผัน 15 นาที</p></div>
     <button class="btn cy" onclick="csv()">ส่งออก CSV</button></div>
+  <div class="toast" id="ttoast"></div>
   <div class="panel"><div class="tw"><table>
     <thead><tr><th>วันที่</th><th>พนักงาน</th><th>เข้า</th><th>ออก</th><th>โครงการ</th>
-      <th class="num">ชม.</th><th class="num">สาย</th><th class="num">OT</th><th>พิกัด</th></tr></thead>
+      <th class="num">ชม.</th><th class="num">สาย</th><th class="num">OT</th><th>พิกัด</th><th id="ts-mng">จัดการ</th></tr></thead>
     <tbody id="ts"></tbody></table></div></div>
 </div>
 
@@ -434,6 +436,23 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   </div>
 </div>
 
+<!-- ══ NOTIFICATIONS / APPROVALS ══ -->
+<div id="v-n" class="hide">
+  <div class="head"><div><h2>แจ้งเตือน / อนุมัติ</h2>
+    <p>คำขอลบหรือแก้ไขการลงเวลา ต้องให้ <b>กรรมการ 3 คนแรก</b> คนใดคนหนึ่งอนุมัติก่อนจึงจะมีผล · การลงเวลานอกพื้นที่จะแจ้งเตือนที่นี่</p></div></div>
+  <div class="panel"><h3>คำขอลบ / แก้ไขการลงเวลา</h3>
+    <div class="tw"><table>
+      <thead><tr><th>วันที่</th><th>พนักงาน</th><th>รายการ</th><th>เหตุผล</th><th>ผู้ขอ</th><th>สถานะ / ดำเนินการ</th></tr></thead>
+      <tbody id="elist"></tbody></table></div>
+    <div class="toast" id="ntoast"></div>
+  </div>
+  <div class="panel"><h3>ลงเวลานอกพื้นที่ / ไม่มี GPS</h3>
+    <div class="tw"><table>
+      <thead><tr><th>เวลา</th><th>พนักงาน</th><th>โครงการ</th><th>เหตุ</th><th>พิกัด</th></tr></thead>
+      <tbody id="nlist"></tbody></table></div>
+  </div>
+</div>
+
 </main>
 
 <script type="module">
@@ -467,7 +486,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v12';
+const VERSION='v13';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -510,7 +529,11 @@ let db=null, auth=null, uid=null;
 let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
 let ME=null, MYROLE='staff', PAY={}, LOANS=[], ADVANCES=[], OTAPPROVE={}, ROLES=[];
+let PEDITS=[], ALERTS=[];
 const isAdmin = () => !!ME && ADMINS.includes(ME.toLowerCase());
+/* กรรมการ 3 คนแรก — เท่านั้นที่อนุมัติการลบ/แก้เวลาได้ */
+const DIRECTORS = ADMINS.slice(0,3);
+const isDirector = () => !!ME && DIRECTORS.includes(ME.toLowerCase());
 const canSeeMoney = () => isAdmin() || MYROLE==='hr' || MYROLE==='accountant';
 const canEditMoney = () => isAdmin() || MYROLE==='accountant';
 
@@ -534,6 +557,15 @@ const pad=n=>String(n).padStart(2,'0');
 const dstr=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 const tstr=d=>`${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const $=id=>document.getElementById(id);
+
+/* เรียงตามรหัส แต่คนที่ยังไม่มีรหัสให้ไปอยู่ท้ายสุด (เรียงตามชื่อในกลุ่มเดียวกัน) */
+function byCodeThenNoCodeLast(a,b){
+  const ac=(a.code||'').trim(), bc=(b.code||'').trim();
+  if(ac&&!bc) return -1;
+  if(!ac&&bc) return 1;
+  if(!ac&&!bc) return (a.name||'').localeCompare(b.name||'','th');
+  return ac.localeCompare(bc,'th',{numeric:true});
+}
 
 window.onerror=(m,s,l)=>showErr(`${m}\n(line ${l})`);
 window.onunhandledrejection=e=>showErr('Promise: '+(e.reason?.message||e.reason));
@@ -676,6 +708,7 @@ function boot(){
     $('t-m').classList.toggle('hide', !canSeeMoney());
     $('t-s').classList.toggle('hide', !canSeeMoney());
     $('t-u').classList.toggle('hide', !isAdmin());
+    $('t-n').classList.toggle('hide', !isAdmin());
     if($('pmonth')) $('pmonth').value = dstr(new Date()).slice(0,7);
 
     listen();
@@ -686,7 +719,7 @@ function boot(){
 /* Live sync. Every phone sees the same register the moment it changes. */
 function listen(){
   onSnapshot(collection(db,'employees'), s=>{
-    EMP = s.docs.map(d=>({id:d.id, ...d.data()})).sort((a,b)=>a.code.localeCompare(b.code));
+    EMP = s.docs.map(d=>({id:d.id, ...d.data()})).sort(byCodeThenNoCodeLast);
     all();
   }, e=>showErr('อ่าน employees ไม่ได้: '+e.message+'\n\nน่าจะเป็นเรื่อง Firestore Rules — ดู FIREBASE-SETUP-TH.md'));
 
@@ -715,6 +748,12 @@ function listen(){
   if(isAdmin()){
     onSnapshot(collection(db,'roles'), s=>{
       ROLES=s.docs.map(d=>d.data()); roleList();
+    }, ()=>{});
+    onSnapshot(collection(db,'punchEdits'), s=>{
+      PEDITS=s.docs.map(d=>({id:d.id,...d.data()})); alertsView();
+    }, ()=>{});
+    onSnapshot(collection(db,'alerts'), s=>{
+      ALERTS=s.docs.map(d=>({id:d.id,...d.data()})); alertsView();
     }, ()=>{});
   }
 
@@ -1147,8 +1186,14 @@ window.doPunch=async type=>{
   if(!e||!c) return;
   const p=c.p;
   const now=new Date();
-  if(type==='in'&&isOpen(e))   return toast('no',e.name+' ลงเวลาเข้างานแล้ว');
-  if(type==='out'&&!isOpen(e)) return toast('no',e.name+' ยังไม่ได้ลงเวลาเข้างาน');
+
+  /* ลงซ้ำได้ตลอดเวลา — แต่เตือนก่อน ไม่ปิดกั้น (ให้ผู้ใช้ยืนยัน) */
+  if(type==='in'&&isOpen(e)){
+    if(!confirm(e.name+' ได้ลงเวลาเข้างานไปแล้ววันนี้\nต้องการลงเวลาเข้าซ้ำหรือไม่?')) return;
+  }
+  if(type==='out'&&!isOpen(e)){
+    if(!confirm(e.name+' ยังไม่มีการลงเวลาเข้างานที่เปิดค้างอยู่\nต้องการลงเวลาออกซ้ำหรือไม่?')) return;
+  }
 
   let d=null, inside=null;
   if(GPS && p.lat!=null){
@@ -1170,10 +1215,25 @@ window.doPunch=async type=>{
     ts: serverTimestamp(), by: uid
   });
 
-  const how = c.declared ? ' · เลือกเอง (ตั้งธง)'
-            : inside===true ? ' · ยืนยันด้วย GPS'
-            : ' · ไม่มีพิกัด (ตั้งธง)';
-  toast('ok',`${type==='in'?'เข้างาน':'ออกงาน'} — ${e.name} · ${p.name} · ${tstr(now)}${how}`);
+  /* ลงเวลานอกพื้นที่/ไม่มี GPS ยืนยัน = ลงได้ แต่ตั้งธง เตือนผู้ใช้ และแจ้งแอดมิน */
+  const flagged = c.declared || inside!==true;
+  if(flagged){
+    const msg = c.declared ? 'เลือกโครงการเอง (ไม่มี GPS ยืนยัน)'
+              : inside===false ? `ลงเวลานอกพื้นที่โครงการ ${d} ม.`
+              : 'ไม่มีพิกัด GPS';
+    try{
+      await addDoc(collection(db,'alerts'), {
+        kind:'geofence', code:e.code, name:e.name, projectName:p.name,
+        type, date:dstr(now), time:tstr(now),
+        distanceM:d, insideGeofence:inside, declared:c.declared,
+        lat:GPS?.lat??null, lng:GPS?.lng??null,
+        message:msg, by:uid, at:serverTimestamp()
+      });
+    }catch(_){ /* ถ้า Rules ยังไม่เปิดสิทธิ์เขียน alerts จะข้ามไป ไม่ให้กระทบการลงเวลา */ }
+    toast('no',`⚠ บันทึก${type==='in'?'เข้างาน':'ออกงาน'}แล้ว — ${msg} · แจ้งหัวหน้าให้ตรวจสอบแล้ว`);
+  } else {
+    toast('ok',`${type==='in'?'เข้างาน':'ออกงาน'} — ${e.name} · ${p.name} · ${tstr(now)} · ยืนยันด้วย GPS`);
+  }
 };
 
 /* ── Roster import ─────────────────────────────────────────────────────────
@@ -1709,12 +1769,14 @@ function grid(){
 }
 
 function timesheet(){
+  const mng=isAdmin();
+  const mh=$('ts-mng'); if(mh) mh.style.display=mng?'':'none';
   const rows=[];
   EMP.forEach(e=>days(e.code).forEach(d=>rows.push({e,d})));
   rows.sort((a,b)=>b.d.date.localeCompare(a.d.date));
   $('ts').innerHTML = rows.length ? rows.map(({e,d})=>`<tr>
     <td class="mono">${d.date}</td>
-    <td><b>${e.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${e.code}</div></td>
+    <td><b>${e.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${e.code||'<span style="color:var(--rose)">ไม่มีรหัส</span>'}</div></td>
     <td class="mono">${d.in?.time||'—'}</td>
     <td class="mono">${d.out?.time||'<span style="color:var(--rose)">—</span>'}</td>
     <td>${d.proj}</td>
@@ -1727,7 +1789,10 @@ function timesheet(){
           : `<a class="chip g" target="_blank" href="https://www.google.com/maps?q=${d.in.lat},${d.in.lng}">ในพื้นที่ · ${d.in.distanceM??'?'} ม.</a>`)
       : '<span class="chip a">ไม่มีพิกัด</span>'}
       ${d.incomplete?'<span class="chip r">ลืมลงเวลาออก</span>':''}</td>
-  </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีข้อมูล</td></tr>';
+    ${mng?`<td style="white-space:nowrap">
+      <button class="mini" onclick="reqEditDay('${e.code}','${d.date}')">ขอแก้</button>
+      <button class="btn rd" style="padding:4px 9px;min-height:30px;font-size:12px" onclick="reqDelDay('${e.code}','${d.date}')">ขอลบ</button></td>`:''}
+  </tr>`).join('') : `<tr><td colspan="${mng?10:9}" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีข้อมูล</td></tr>`;
 }
 
 window.csv=()=>{
@@ -1743,16 +1808,133 @@ window.csv=()=>{
   a.download='seus-timesheet-'+dstr(new Date())+'.csv'; a.click();
 };
 
+/* ── ข้อ 1: คำขอลบ / แก้ไขการลงเวลา — แอดมินเสนอ, กรรมการ 3 คนแรกอนุมัติ ── */
+const validTime=t=>/^([01]?\d|2[0-3]):[0-5]\d$/.test((t||'').trim());
+const minOf=t=>{ const [h,m]=t.split(':').map(Number); return h*60+m; };
+
+window.reqDelDay=async(code,date)=>{
+  if(!isAdmin()) return toast('no','เฉพาะแอดมินเท่านั้น','t');
+  const e=EMP.find(x=>x.code===code);
+  const ps=PUNCH.filter(p=>p.code===code && p.date===date);
+  if(!ps.length) return toast('no','ไม่พบข้อมูลการลงเวลาของวันนี้','t');
+  if(!confirm(`ขอลบการลงเวลาของ ${e?.name||code} วันที่ ${date}\n(${ps.length} รายการ)\n\nคำขอนี้ต้องให้กรรมการ 3 คนแรกอนุมัติก่อนจึงจะลบจริง — ดำเนินการต่อ?`)) return;
+  const reason=prompt('เหตุผลในการลบ:','')||'';
+  try{
+    await addDoc(collection(db,'punchEdits'), {
+      action:'delete', code, name:e?.name||code, date,
+      punchIds: ps.map(p=>p.id),
+      summary: ps.map(p=>`${p.type==='in'?'เข้า':'ออก'} ${p.time}`).join(', '),
+      reason, status:'pending', requestedBy:ME, requestedAt:serverTimestamp()
+    });
+    toast('ok','ส่งคำขอลบแล้ว — รอกรรมการ 3 คนแรกอนุมัติ (ดูที่แท็บแจ้งเตือน)','t');
+  }catch(err){ toast('no','ส่งคำขอไม่ได้: '+err.message,'t'); }
+};
+
+window.reqEditDay=async(code,date)=>{
+  if(!isAdmin()) return toast('no','เฉพาะแอดมินเท่านั้น','t');
+  const e=EMP.find(x=>x.code===code);
+  const ps=PUNCH.filter(p=>p.code===code && p.date===date).sort((a,b)=>a.min-b.min);
+  const cin=ps.find(p=>p.type==='in'), cout=[...ps].reverse().find(p=>p.type==='out');
+  if(!cin&&!cout) return toast('no','ไม่พบข้อมูลการลงเวลาของวันนี้','t');
+  const newIn = prompt(`เวลาเข้าใหม่ (HH:MM) — เดิม ${cin?cin.time:'ไม่มี'}\nเว้นว่าง = ไม่แก้`, cin?cin.time:'');
+  if(newIn===null) return;
+  const newOut = prompt(`เวลาออกใหม่ (HH:MM) — เดิม ${cout?cout.time:'ไม่มี'}\nเว้นว่าง = ไม่แก้`, cout?cout.time:'');
+  if(newOut===null) return;
+  const changes=[];
+  if(newIn.trim()&&cin){ if(!validTime(newIn)) return toast('no','เวลาเข้าไม่ถูกต้อง (ต้องเป็น HH:MM)','t'); if(newIn.trim()!==cin.time) changes.push({punchId:cin.id, from:cin.time, time:newIn.trim(), type:'in'}); }
+  if(newOut.trim()&&cout){ if(!validTime(newOut)) return toast('no','เวลาออกไม่ถูกต้อง (ต้องเป็น HH:MM)','t'); if(newOut.trim()!==cout.time) changes.push({punchId:cout.id, from:cout.time, time:newOut.trim(), type:'out'}); }
+  if(!changes.length) return toast('no','ไม่มีการเปลี่ยนแปลง','t');
+  const reason=prompt('เหตุผลในการแก้ไข:','')||'';
+  try{
+    await addDoc(collection(db,'punchEdits'), {
+      action:'edit', code, name:e?.name||code, date, changes,
+      summary: changes.map(c=>`${c.type==='in'?'เข้า':'ออก'} ${c.from}→${c.time}`).join(', '),
+      reason, status:'pending', requestedBy:ME, requestedAt:serverTimestamp()
+    });
+    toast('ok','ส่งคำขอแก้ไขแล้ว — รอกรรมการ 3 คนแรกอนุมัติ (ดูที่แท็บแจ้งเตือน)','t');
+  }catch(err){ toast('no','ส่งคำขอไม่ได้: '+err.message,'t'); }
+};
+
+window.approveEdit=async id=>{
+  if(!isDirector()) return toast('no','เฉพาะกรรมการ 3 คนแรกเท่านั้นที่อนุมัติได้','n');
+  const req=PEDITS.find(x=>x.id===id);
+  if(!req||req.status!=='pending') return;
+  if(!confirm(`อนุมัติคำขอ${req.action==='delete'?'ลบ':'แก้ไข'}เวลาของ ${req.name} (${req.date})?`)) return;
+  try{
+    if(req.action==='delete'){
+      for(const pid of (req.punchIds||[])) await deleteDoc(doc(db,'punches',pid));
+    } else {
+      for(const c of (req.changes||[]))
+        await setDoc(doc(db,'punches',c.punchId),
+          {time:c.time, min:minOf(c.time), editedBy:ME, editedAt:serverTimestamp()}, {merge:true});
+    }
+    await setDoc(doc(db,'punchEdits',id),
+      {status:'approved', decidedBy:ME, decidedAt:serverTimestamp()}, {merge:true});
+    toast('ok','อนุมัติและดำเนินการเรียบร้อยแล้ว','n');
+  }catch(err){ toast('no','ผิดพลาด: '+err.message,'n'); }
+};
+
+window.rejectEdit=async id=>{
+  if(!isDirector()) return toast('no','เฉพาะกรรมการ 3 คนแรกเท่านั้น','n');
+  const req=PEDITS.find(x=>x.id===id);
+  if(!req||req.status!=='pending') return;
+  if(!confirm('ปฏิเสธคำขอนี้?')) return;
+  try{
+    await setDoc(doc(db,'punchEdits',id),
+      {status:'rejected', decidedBy:ME, decidedAt:serverTimestamp()}, {merge:true});
+    toast('ok','ปฏิเสธคำขอแล้ว','n');
+  }catch(err){ toast('no','ผิดพลาด: '+err.message,'n'); }
+};
+
+function alertsView(){
+  if(!isAdmin()) return;
+  const dir=isDirector();
+  const bySeconds=(a,b,k)=>((b[k]?.seconds)||0)-((a[k]?.seconds)||0);
+  const pend=PEDITS.filter(r=>r.status==='pending').sort((a,b)=>bySeconds(a,b,'requestedAt'));
+  const done=PEDITS.filter(r=>r.status!=='pending').sort((a,b)=>bySeconds(a,b,'decidedAt')).slice(0,20);
+
+  const nb=$('t-n'); if(nb) nb.innerHTML='แจ้งเตือน'+(pend.length?` <span class="chip r" style="padding:1px 7px">${pend.length}</span>`:'');
+
+  const row=r=>`<tr>
+    <td class="mono">${r.date}</td>
+    <td><b>${r.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${r.code||'ไม่มีรหัส'}</div></td>
+    <td><span class="chip ${r.action==='delete'?'r':'a'}">${r.action==='delete'?'ลบเวลา':'แก้เวลา'}</span>
+      <span style="font-size:12px;color:var(--ink-2)">${r.summary||''}</span></td>
+    <td style="font-size:12px;color:var(--ink-3)">${r.reason||'—'}</td>
+    <td style="font-size:11px;color:var(--ink-3)">${r.requestedBy||''}</td>
+    <td style="white-space:nowrap">${r.status==='pending'
+      ? (dir
+          ? `<button class="mini" onclick="approveEdit('${r.id}')">อนุมัติ</button>
+             <button class="btn rd" style="padding:4px 9px;min-height:30px;font-size:12px" onclick="rejectEdit('${r.id}')">ปฏิเสธ</button>`
+          : '<span class="chip a">รอกรรมการอนุมัติ</span>')
+      : `<span class="chip ${r.status==='approved'?'g':'r'}">${r.status==='approved'?'อนุมัติแล้ว':'ปฏิเสธแล้ว'}</span>
+         <div style="font-size:10.5px;color:var(--ink-3)">${r.decidedBy||''}</div>`}</td>
+  </tr>`;
+  $('elist').innerHTML = (pend.length||done.length)
+    ? [...pend,...done].map(row).join('')
+    : '<tr><td colspan="6" style="text-align:center;padding:26px;color:var(--ink-3)">ไม่มีคำขอ</td></tr>';
+
+  const al=[...ALERTS].sort((a,b)=>bySeconds(a,b,'at')).slice(0,60);
+  $('nlist').innerHTML = al.length ? al.map(a=>`<tr>
+    <td class="mono" style="font-size:12px">${a.date||''} ${a.time||''}</td>
+    <td><b>${a.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${a.code||'ไม่มีรหัส'}</div></td>
+    <td>${a.projectName||'—'}</td>
+    <td><span class="chip a">${a.message||'นอกพื้นที่'}</span></td>
+    <td>${a.lat!=null?`<a class="chip" target="_blank" href="https://www.google.com/maps?q=${a.lat},${a.lng}">แผนที่</a>`:'—'}</td>
+  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:26px;color:var(--ink-3)">ไม่มีการแจ้งเตือน</td></tr>';
+}
+
 function toast(k,m,w){
   const id = w==='f'?'ftoast' : w==='a'?'atoast' : w==='p'?'ptoast'
-           : w==='l'?'ltoast' : w==='u'?'utoast' : 'toast';
+           : w==='l'?'ltoast' : w==='u'?'utoast' : w==='t'?'ttoast'
+           : w==='n'?'ntoast' : 'toast';
   const t=$(id); if(!t) return;
   t.className='toast '+(k==='ok'?'ok':'no'); t.textContent=m;
   clearTimeout(window['_'+id]); window['_'+id]=setTimeout(()=>t.className='toast',7000);
 }
 
 window.tab=t=>{
-  ['c','d','f','p','t','m','s','u'].forEach(k=>{
+  ['c','d','f','p','t','m','s','u','n'].forEach(k=>{
     $('v-'+k).classList.toggle('hide',k!==t);
     $('t-'+k).setAttribute('aria-selected',k===t);
   });
@@ -1761,6 +1943,7 @@ window.tab=t=>{
 };
 function all(){
   board(); lists(); grid(); timesheet();
+  if(isAdmin()) alertsView();
   if(canSeeMoney()){ money(); payslips(); }
 }
 
