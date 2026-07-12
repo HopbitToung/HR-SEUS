@@ -486,7 +486,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v13';
+const VERSION='v14';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -784,6 +784,9 @@ window.addEmp=async()=>{
         pos=$('apos').value.trim()||'—', kind=$('akind').value;
   if(!code||!name) return toast('no','ต้องกรอกรหัสและชื่อ','a');
   if(EMP.some(e=>e.code===code)) return toast('no','รหัส '+code+' มีอยู่แล้ว','a');
+  /* เตือนถ้าชื่อซ้ำกับคนที่มีอยู่แล้ว (กันเพิ่มคนเดิมซ้ำ) */
+  const dupName=EMP.find(e=>(e.name||'').trim()===name);
+  if(dupName && !confirm(`มีชื่อ "${name}" อยู่แล้ว (รหัส ${dupName.code||'ไม่มีรหัส'})\nต้องการเพิ่มซ้ำหรือไม่?`)) return;
   await setDoc(doc(db,'employees',code), {
     code, name, pos, cls: kind==='overhead'?'overhead':'direct',
     exempt: kind==='exempt', face:null, createdAt: serverTimestamp()
@@ -791,10 +794,12 @@ window.addEmp=async()=>{
   ['acode','aname','apos'].forEach(k=>$(k).value='');
   toast('ok','เพิ่ม '+name+' แล้ว — ให้เขาเปิดจากมือถือตัวเองแล้วไปถ่ายใบหน้า','a');
 };
-window.delEmp=async code=>{
-  const e=EMP.find(x=>x.code===code);
-  if(!confirm(`ลบ ${e.name} ออกจากทะเบียน?`)) return;
-  await deleteDoc(doc(db,'employees',code));
+window.delEmp=async idOrCode=>{
+  /* ลบตาม doc id เพื่อให้ลบเรคคอร์ด "ไม่มีรหัส" ได้ด้วย (doc id ไม่เท่ากับ code) */
+  const e=EMP.find(x=>x.id===idOrCode) || EMP.find(x=>x.code===idOrCode);
+  if(!e) return;
+  if(!confirm(`ลบ ${e.name||'(ไม่มีชื่อ)'}${e.code?' · รหัส '+e.code:' · ไม่มีรหัส'} ออกจากทะเบียน?`)) return;
+  await deleteDoc(doc(db,'employees', e.id || e.code));
 };
 window.clearFace=async code=>{
   const e=EMP.find(x=>x.code===code);
@@ -983,7 +988,17 @@ window.startCam=async w=>{
     $(w==='c'?'ph':'fph').textContent='กำลังโหลด…';
     await loadModels();
     stream?.getTracks().forEach(t=>t.stop());
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:640,height:480}});
+    /* โน้ตบุ๊ก/เว็บแคมบางรุ่นเปิดไม่ได้ถ้าบังคับความละเอียดตายตัว —
+       ขอแบบ "ideal" ก่อน ถ้าไม่ได้ค่อย fallback เป็น video:true (เอากล้องอะไรก็ได้) */
+    stream = await navigator.mediaDevices
+      .getUserMedia({video:{facingMode:'user', width:{ideal:640}, height:{ideal:480}}})
+      .catch(async e1=>{
+        if(e1.name==='OverconstrainedError' || e1.name==='NotFoundError' || e1.name==='NotReadableError'){
+          log('ลองเปิดกล้องแบบยืดหยุ่น (video:true)…','e');
+          return await navigator.mediaDevices.getUserMedia({video:true});
+        }
+        throw e1;
+      });
     $(w==='c'?'vid':'fvid').srcObject=stream;
     $(w==='c'?'ph':'fph').classList.add('hide');
     $(w==='c'?'hud':'fhud').classList.remove('hide');
@@ -994,7 +1009,15 @@ window.startCam=async w=>{
       log('เปิดกล้องแล้ว — กดปุ่มถ่ายภาพได้เลย');
     }
     w==='c' ? idLoop() : enrolLoop();
-  }catch(err){ toast('no','เปิดกล้องไม่ได้: '+err.message, w); log('เปิดกล้องล้มเหลว: '+err.message,'e'); }
+  }catch(err){
+    const why = err.name==='NotAllowedError'  ? 'เบราว์เซอร์ไม่อนุญาตให้ใช้กล้อง — กดไอคอนกล้อง/แม่กุญแจบนแถบที่อยู่ แล้วเลือก "อนุญาต"'
+             : err.name==='NotFoundError' || err.name==='DevicesNotFoundError' ? 'ไม่พบกล้องบนเครื่องนี้ — ตรวจว่ากล้องไม่ได้ถูกปิด/ถอด'
+             : err.name==='NotReadableError' || err.name==='TrackStartError' ? 'กล้องถูกโปรแกรมอื่นใช้อยู่ — ปิด Zoom / Teams / Meet / OBS แล้วลองใหม่'
+             : err.name==='OverconstrainedError' ? 'กล้องไม่รองรับค่าที่ขอ — ลองรีเฟรชหน้าใหม่'
+             : err.message;
+    toast('no','เปิดกล้องไม่ได้: '+why, w);
+    log('เปิดกล้องล้มเหลว ('+err.name+'): '+err.message,'e');
+  }
 };
 
 function idLoop(){
@@ -1378,7 +1401,8 @@ function moneyRows(month){
     const lateDed= e.exempt ? 0 : hourly * (lateMin/60);
 
     const totalEarn = gross + otPay;
-    const sso  = ssoOf(totalEarn, pr?.exemptSso);
+    /* เงินได้ 0 บาทเดือนนั้น → ไม่หัก ปกส. (เดิมมีขั้นต่ำฐาน 1,650 ทำให้หัก 82.50 แม้ไม่มีรายได้) */
+    const sso  = totalEarn>0 ? ssoOf(totalEarn, pr?.exemptSso) : 0;
     const tax  = annualTax(totalEarn*12, pr?.children, pr?.spouse)/12;
 
     const loanDed = LOANS.filter(l=>l.code===e.code && l.remaining>0)
@@ -1722,14 +1746,19 @@ function lists(){
   const wf=EMP.filter(e=>faceVecs(e).length).length;
   $('k-tot').textContent=EMP.length; $('k-face').textContent=wf; $('k-noface').textContent=EMP.length-wf;
 
-  $('dlist').innerHTML = EMP.length ? EMP.map(e=>`<tr>
-    <td class="mono">${e.code}</td>
-    <td><b>${e.name}</b><div style="font-size:11px;color:var(--ink-3)">${
+  /* นับชื่อซ้ำ เพื่อขึ้นธงเตือน (เช่น คนเดิมถูกเพิ่ม 2 เรคคอร์ด รหัสต่างกัน/ไม่มีรหัส) */
+  const nameCount={};
+  EMP.forEach(e=>{ const n=(e.name||'').trim(); if(n) nameCount[n]=(nameCount[n]||0)+1; });
+  $('dlist').innerHTML = EMP.length ? EMP.map(e=>{
+    const dup=(nameCount[(e.name||'').trim()]||0)>1;
+    return `<tr>
+    <td class="mono">${e.code||'<span class="chip r">ไม่มีรหัส</span>'}</td>
+    <td><b>${e.name}</b>${dup?' <span class="chip a">ชื่อซ้ำ</span>':''}<div style="font-size:11px;color:var(--ink-3)">${
       e.exempt?'ผู้บริหาร':e.cls==='overhead'?'แบ็คออฟฟิศ':'หน้างาน'}</div></td>
     <td style="color:var(--ink-3)">${e.pos}</td>
     <td>${faceVecs(e).length?'<span class="chip g">มีแล้ว</span>':'<span class="chip r">ยังไม่มี</span>'}</td>
-    <td><button class="btn rd" style="padding:5px 11px;min-height:32px;font-size:12px" onclick="delEmp('${e.code}')">ลบ</button></td>
-  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีใครในทะเบียน</td></tr>';
+    <td><button class="btn rd" style="padding:5px 11px;min-height:32px;font-size:12px" onclick="delEmp('${e.id||e.code}')">ลบ</button></td>
+  </tr>`; }).join('') : '<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--ink-3)">ยังไม่มีใครในทะเบียน</td></tr>';
 
   $('flist').innerHTML = EMP.length ? EMP.map(e=>`<tr>
     <td class="mono">${e.code}</td><td><b>${e.name}</b></td>
