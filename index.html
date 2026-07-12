@@ -501,7 +501,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v15';
+const VERSION='v16';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -1603,7 +1603,10 @@ function payslips(){
         onchange="approveOT('${r.e.code}','${month}',this.value,${r.otEvidence})">
       ${diff>0?`<div style="font-size:10px;color:#B67B12">ต่าง ${(diff/60).toFixed(1)} ชม.</div>`:''}
     </td>
-    <td class="num"><b>${B(r.totalEarn)}</b></td>
+    <td class="num"><b>${B(r.totalEarn)}</b>${
+      r.pr?.basis==='daily'
+        ? `<div style="font-size:9.5px;color:var(--ink-3);font-family:'IBM Plex Sans Thai'">รายวัน ฿${B0(r.pr.base)}/วัน × ${r.daysPresent} วัน${r.daysPresent===0?' — ยังไม่มีวันทำงาน':''}</div>`
+        : (!r.pr ? '<div style="font-size:9.5px;color:var(--rose);font-family:\'IBM Plex Sans Thai\'">ยังไม่มีข้อมูลการเงิน</div>' : '')}</td>
     <td class="num" style="color:${r.pr?.exemptSso?'var(--ink-3)':'inherit'}">${r.sso?B(r.sso):'0'}</td>
     <td class="num">${B(r.tax)}</td>
     <td class="num" style="color:${r.otherDed?'var(--rose)':'var(--ink-3)'}">
@@ -1649,7 +1652,7 @@ window.editDed=(code,month)=>{
     <div class="db"><div class="edit" style="background:#fff;border-radius:12px;padding:18px;box-shadow:var(--sh)">
       <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px">รายการหักที่กรอกเองสำหรับเดือนนี้ (นอกเหนือจากหักสาย/เงินกู้/เบิกล่วงหน้าที่ระบบคิดให้อัตโนมัติ)</p>
       <div id="dedrows">${items.map(dedRowHtml).join('')}</div>
-      <button class="btn" onclick="$('dedrows').insertAdjacentHTML('beforeend', window._dedRow())">+ เพิ่มรายการ</button>
+      <button class="btn" onclick="addDedRow()">+ เพิ่มรายการ</button>
       <div style="margin-top:16px;display:flex;gap:9px">
         <button class="btn cy" onclick="saveDed('${code}','${month}')">บันทึก</button>
         <button class="btn" onclick="closeD()">ยกเลิก</button>
@@ -1657,7 +1660,8 @@ window.editDed=(code,month)=>{
     </div></div></div>`;
   openD();
 };
-window._dedRow=()=>dedRowHtml();
+/* ปุ่ม "+ เพิ่มรายการ" ต้องเป็น window function — เรียก $() (module scope) จาก onclick ตรงๆ ไม่ได้ */
+window.addDedRow=()=>{ document.getElementById('dedrows').insertAdjacentHTML('beforeend', dedRowHtml()); };
 window.saveDed=async(code,month)=>{
   if(!canEditMoney()) return toast('no','ไม่มีสิทธิ์แก้ไขการเงิน','s');
   const items=[...$('dedrows').querySelectorAll('.ded-row')].map(r=>({
