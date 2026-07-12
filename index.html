@@ -410,14 +410,25 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
       <button class="btn cy" onclick="exportPay()">ส่งออก Excel</button>
     </div></div>
 
-  <div class="note w"><span class="chip a">ADR-001</span>
-    <div><b>OT ที่บัตรตอกเห็น ≠ OT ที่จ่าย</b>
-    <p>บัตรตอกคือ<b>หลักฐาน</b> ไม่ใช่คำสั่งจ่าย — ช่างที่ลืมตอกออกจะมี OT เป็นศูนย์ทั้งที่ทำงานจริง<br>
-    กรอกช่อง <b>OT อนุมัติ</b> เอง ระบบจ่ายตามช่องนั้นเท่านั้น และแสดงส่วนต่างให้เห็น</p></div></div>
+  <div class="note w"><span class="chip a">OT ตามกฎหมายแรงงาน</span>
+    <div><b>ระบบคิด OT จากบัตรตอกจริง</b>
+    <p>วันทำงานปกติ OT <b>1.5×</b> · ทำงานวันหยุด (อาทิตย์/วันหยุดบริษัท) ในเวลา <b>2×</b> · OT วันหยุดหลังเลิกงาน <b>3×</b><br>
+    คอลัมน์ “OT คิดจริง” แสดงวิธีคิด · ถ้าต้องปรับ กด <b>แก้ไข OT</b> → <b>กรรมการ 3 คนแรก</b> อนุมัติก่อนจึงมีผล</p></div></div>
+
+  <div class="panel"><h3>วันหยุดบริษัท <span style="font-size:12px;font-weight:400;color:var(--ink-3)">— ใช้คิด OT 2×/3× (วันอาทิตย์นับเป็นวันหยุดอัตโนมัติ)</span></h3>
+    <div class="in">
+      <div id="holform" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input class="tx mono" type="date" id="holdate" style="width:auto">
+        <input class="tx" id="holname" placeholder="ชื่อวันหยุด เช่น สงกรานต์" style="flex:1;min-width:150px">
+        <button class="btn cy" onclick="addHoliday()">เพิ่มวันหยุด</button>
+      </div>
+      <div id="hollist" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+  </div>
 
   <div class="panel"><div class="tw"><table>
     <thead><tr><th>พนักงาน</th><th class="num">วันทำงาน</th><th class="num">สาย(น.)</th>
-      <th class="num">OT บัตรตอก</th><th class="num">OT อนุมัติ</th><th class="num">รายได้รวม</th>
+      <th class="num">OT คิดจริง</th><th class="num">OT ที่จ่าย</th><th class="num">รายได้รวม</th>
       <th class="num">ปกส.</th><th class="num">ภาษี</th><th class="num">หักอื่น</th><th class="num">สุทธิ</th></tr></thead>
     <tbody id="slist"></tbody>
     <tfoot id="sfoot"></tfoot></table></div></div>
@@ -457,6 +468,11 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
       <thead><tr><th>วันที่</th><th>พนักงาน</th><th>รายการ</th><th>เหตุผล</th><th>ผู้ขอ</th><th>สถานะ / ดำเนินการ</th></tr></thead>
       <tbody id="elist"></tbody></table></div>
     <div class="toast" id="ntoast"></div>
+  </div>
+  <div class="panel"><h3>คำขอปรับ OT</h3>
+    <div class="tw"><table>
+      <thead><tr><th>เดือน</th><th>พนักงาน</th><th>ระบบคิด</th><th>ขอปรับเป็น</th><th>เหตุผล</th><th>สถานะ / ดำเนินการ</th></tr></thead>
+      <tbody id="otlist"></tbody></table></div>
   </div>
   <div class="panel"><h3>ลงเวลานอกพื้นที่ / ไม่มี GPS</h3>
     <div class="tw"><table>
@@ -501,7 +517,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v16';
+const VERSION='v17';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -544,7 +560,7 @@ let db=null, auth=null, uid=null;
 let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
 let ME=null, MYROLE='staff', PAY={}, LOANS=[], ADVANCES=[], OTAPPROVE={}, ROLES=[];
-let PEDITS=[], ALERTS=[], PAYADJ={};
+let PEDITS=[], ALERTS=[], PAYADJ={}, HOLIDAYS={}, OTEDIT={};
 const isAdmin = () => !!ME && ADMINS.includes(ME.toLowerCase());
 /* กรรมการ 3 คนแรก — เท่านั้นที่อนุมัติการลบ/แก้เวลาได้ */
 const DIRECTORS = ADMINS.slice(0,3);
@@ -762,6 +778,9 @@ function listen(){
     onSnapshot(collection(db,'payadjust'), s=>{
       PAYADJ={}; s.docs.forEach(d=>PAYADJ[d.id]=d.data()); all();
     }, ()=>{});
+    onSnapshot(collection(db,'otedits'), s=>{
+      OTEDIT={}; s.docs.forEach(d=>OTEDIT[d.id]={id:d.id,...d.data()}); all();
+    }, ()=>{});
   }
   if(isAdmin()){
     onSnapshot(collection(db,'roles'), s=>{
@@ -774,6 +793,10 @@ function listen(){
       ALERTS=s.docs.map(d=>({id:d.id,...d.data()})); alertsView();
     }, ()=>{});
   }
+
+  onSnapshot(collection(db,'holidays'), s=>{
+    HOLIDAYS={}; s.docs.forEach(d=>HOLIDAYS[d.id]=d.data()); all();
+  }, ()=>{});
 
   onSnapshot(collection(db,'projects'), s=>{
     PROJ = s.docs.map(d=>({id:d.id, ...d.data()}));
@@ -1409,13 +1432,23 @@ function moneyRows(month){
     const D  = days(e.code).filter(d=>d.date.startsWith(month));
     const daysPresent = D.filter(d=>!d.incomplete).length;
     const lateMin     = D.reduce((s,d)=>s+d.late,0);
-    const otEvidence  = D.reduce((s,d)=>s+d.ot,0);
     const key         = e.code+'_'+month;
-    const otApproved  = OTAPPROVE[key]?.approvedMin ?? 0;
+
+    /* OT คิดจริงจากบัตรตอก แยกตามอัตรากฎหมาย */
+    const ot15 = D.reduce((s,d)=>s+(d.ot15||0),0);   // 1.5×
+    const ot2  = D.reduce((s,d)=>s+(d.ot2 ||0),0);   // 2×
+    const ot3  = D.reduce((s,d)=>s+(d.ot3 ||0),0);   // 3×
+    const otEvidence = ot15+ot2+ot3;                  // นาที OT รวม (หลักฐาน)
 
     const gross  = grossOf(pr, daysPresent);
     const hourly = hourlyOf(pr);
-    const otPay  = hourly * 1.5 * (otApproved/60);
+    const otAutoPay = hourly*(1.5*ot15 + 2*ot2 + 3*ot3)/60;
+
+    /* แอดมินเสนอปรับ OT ได้ แต่มีผลก็ต่อเมื่อกรรมการ 3 คนแรกอนุมัติ
+       ระหว่างรออนุมัติ/ถ้าปฏิเสธ → จ่ายตามที่ระบบคิด */
+    const otOverride = OTEDIT[key];
+    const otPay = (otOverride && otOverride.status==='approved') ? (+otOverride.otPay||0) : otAutoPay;
+
     const lateDed= e.exempt ? 0 : hourly * (lateMin/60);
 
     const totalEarn = gross + otPay;
@@ -1436,7 +1469,7 @@ function moneyRows(month){
     const otherDed = lateDed + loanDed + advDed + extraDed;
     const net = totalEarn - sso - tax - otherDed;
 
-    return {e, pr, daysPresent, lateMin, otEvidence, otApproved,
+    return {e, pr, daysPresent, lateMin, otEvidence, ot15, ot2, ot3, otAutoPay, otOverride,
             gross, otPay, totalEarn, sso, ssoEmployer: sso, tax,
             lateDed, loanDed, advDed, extraDed, extraItems, otherDed, net,
             incomplete: !pr || !pr.base || !pr.bank || pr.children==null};
@@ -1590,18 +1623,22 @@ function payslips(){
   const T=k=>R.reduce((s,r)=>s+r[k],0);
 
   $('slist').innerHTML = R.map(r=>{
-    const diff = r.otEvidence - r.otApproved;
+    const ovrOK = r.otOverride?.status==='approved';
     return `<tr>
     <td><b>${r.e.name}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${r.e.code}</div>
       ${r.incomplete?'<span class="chip r">ข้อมูลไม่ครบ</span>':''}</td>
     <td class="num">${r.daysPresent}</td>
     <td class="num" style="color:${r.lateMin?'#B67B12':'var(--ink-3)'}">${r.lateMin||'—'}</td>
-    <td class="num" style="color:var(--ink-3)">${(r.otEvidence/60).toFixed(1)}</td>
+    <td class="num" style="font-family:'IBM Plex Sans Thai'">
+      ${r.otAutoPay?B(r.otAutoPay):'—'}
+      ${(r.ot15||r.ot2||r.ot3)?`<div style="font-size:9px;color:var(--ink-3);line-height:1.5">${
+        [r.ot15?`1.5× ${(r.ot15/60).toFixed(1)}ชม`:'',r.ot2?`2× ${(r.ot2/60).toFixed(1)}ชม`:'',r.ot3?`3× ${(r.ot3/60).toFixed(1)}ชม`:''].filter(Boolean).join('<br>')}</div>`:''}
+    </td>
     <td class="num">
-      <input type="number" min="0" step="0.5" value="${(r.otApproved/60).toFixed(1)}" style="width:72px;padding:6px;
-        border:1.5px solid ${diff>0?'var(--amber)':'var(--line)'};border-radius:7px;text-align:right;font-family:'IBM Plex Mono'"
-        onchange="approveOT('${r.e.code}','${month}',this.value,${r.otEvidence})">
-      ${diff>0?`<div style="font-size:10px;color:#B67B12">ต่าง ${(diff/60).toFixed(1)} ชม.</div>`:''}
+      <b>${B(r.otPay)}</b>
+      ${ovrOK?'<div style="font-size:9px;color:var(--indigo)">ปรับโดยอนุมัติ</div>'
+        : r.otOverride?.status==='pending'?'<div style="font-size:9px;color:#B67B12">รอกรรมการอนุมัติ</div>':''}
+      ${canEditMoney()?`<button class="mini" style="margin-top:3px" onclick="editOT('${r.e.code}','${month}')">แก้ไข OT</button>`:''}
     </td>
     <td class="num"><b>${B(r.totalEarn)}</b>${
       r.pr?.basis==='daily'
@@ -1627,12 +1664,80 @@ function payslips(){
     <td class="num" style="color:var(--indigo)">${B(T('net'))}</td></tr>
     <tr><td colspan="10" style="font-size:12px;color:var(--ink-3);padding:10px 14px">
       เงินสมทบนายจ้าง (ปกส.) ${B(T('ssoEmployer'))} บาท — เป็นต้นทุนบริษัท ไม่ใช่รายการหักจากพนักงาน</td></tr>`;
+
+  /* วันหยุดบริษัท */
+  const hf=$('holform'); if(hf) hf.style.display=canEditMoney()?'flex':'none';
+  const hl=$('hollist');
+  if(hl) hl.innerHTML = Object.values(HOLIDAYS).sort((a,b)=>a.date.localeCompare(b.date))
+    .map(h=>`<span class="chip a" style="padding:5px 10px">${h.date}${h.name?' · '+h.name:''}${
+      canEditMoney()?` <b style="cursor:pointer;color:var(--rose)" onclick="delHoliday('${h.date}')">×</b>`:''}</span>`).join('')
+    || '<span style="font-size:12px;color:var(--ink-3)">ยังไม่มีวันหยุดบริษัท — วันอาทิตย์ยังถูกนับเป็นวันหยุดโดยอัตโนมัติ</span>';
 }
 
-window.approveOT=async(code,month,hours,evidenceMin)=>{
-  const min=Math.round((+hours||0)*60);
-  await setDoc(doc(db,'otapprovals', code+'_'+month),
-    {code, month, approvedMin:min, evidenceMin, by:ME, at:serverTimestamp()});
+/* ── OT: แอดมินเสนอปรับ → กรรมการ 3 คนแรกอนุมัติ ── */
+window.editOT=(code,month)=>{
+  if(!canEditMoney()) return toast('no','เฉพาะ Admin หรือ Accountant เท่านั้น','s');
+  const e=EMP.find(x=>x.code===code);
+  const R=moneyRows(month).find(r=>r.e.code===code);
+  const auto=R?R.otAutoPay:0, cur=R?R.otPay:0;
+  const bd=R?[R.ot15?`ทำงานปกติ (1.5×) ${(R.ot15/60).toFixed(1)} ชม`:'',
+              R.ot2 ?`ทำงานวันหยุด (2×) ${(R.ot2/60).toFixed(1)} ชม`:'',
+              R.ot3 ?`OT วันหยุด (3×) ${(R.ot3/60).toFixed(1)} ชม`:''].filter(Boolean).join('<br>'):'';
+  $('drawer').innerHTML=`<div class="dpanel">
+    <div class="dh"><div><h2>แก้ไข OT — ${e?e.name:code}</h2><div class="m">${code} · เดือน ${month}</div></div>
+      <button class="x" onclick="closeD()">×</button></div>
+    <div class="db"><div class="edit" style="background:#fff;border-radius:12px;padding:18px;box-shadow:var(--sh)">
+      <div style="background:var(--cyan-l);border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px;line-height:1.6">
+        <b>ระบบคิดจากบัตรตอกจริง</b><br>${bd||'ไม่มี OT ในเดือนนี้'}<br>
+        <b>รวมเป็นเงิน ฿${B(auto)}</b></div>
+      <div class="f"><label>OT ที่จะจ่าย (บาท) — แก้ได้ถ้าต้องการต่างจากที่ระบบคิด</label>
+        <input type="number" class="tx mono" id="ot-amt" value="${(cur||0).toFixed(2)}"></div>
+      <div class="f" style="margin-top:10px"><label>เหตุผลในการปรับ</label>
+        <input class="tx" id="ot-reason" placeholder="เช่น ตกลงจ่ายเหมา / ไม่อนุมัติบางชั่วโมง"></div>
+      <p style="font-size:12px;color:var(--ink-3);margin-top:12px">คำขอนี้ต้องให้ <b>กรรมการ 3 คนแรก</b> อนุมัติก่อนจึงมีผล · ระหว่างรอ (หรือถ้าปฏิเสธ) จะจ่ายตามที่ระบบคิด</p>
+      <div style="margin-top:14px;display:flex;gap:9px">
+        <button class="btn cy" onclick="saveOT('${code}','${month}',${auto})">ส่งคำขอ</button>
+        <button class="btn" onclick="closeD()">ยกเลิก</button>
+      </div>
+    </div></div></div>`;
+  openD();
+};
+window.saveOT=async(code,month,autoPay)=>{
+  if(!canEditMoney()) return toast('no','ไม่มีสิทธิ์','s');
+  const e=EMP.find(x=>x.code===code);
+  const amt=+$('ot-amt').value||0;
+  await setDoc(doc(db,'otedits', code+'_'+month),
+    {code, name:e?.name||code, month, otPay:amt, autoPay:+autoPay||0,
+     reason:$('ot-reason').value.trim(), status:'pending', requestedBy:ME, requestedAt:serverTimestamp()});
+  closeD(); toast('ok','ส่งคำขอปรับ OT แล้ว — รอกรรมการ 3 คนแรกอนุมัติ (ดูที่แท็บแจ้งเตือน)','s');
+};
+window.approveOTedit=async id=>{
+  if(!isDirector()) return toast('no','เฉพาะกรรมการ 3 คนแรกเท่านั้น','n');
+  const r=OTEDIT[id]; if(!r||r.status!=='pending') return;
+  if(!confirm(`อนุมัติปรับ OT ของ ${r.name||r.code} (${r.month}) เป็น ฿${B(+r.otPay||0)}?`)) return;
+  await setDoc(doc(db,'otedits',id),{status:'approved',decidedBy:ME,decidedAt:serverTimestamp()},{merge:true});
+  toast('ok','อนุมัติปรับ OT แล้ว','n');
+};
+window.rejectOTedit=async id=>{
+  if(!isDirector()) return toast('no','เฉพาะกรรมการ 3 คนแรกเท่านั้น','n');
+  const r=OTEDIT[id]; if(!r||r.status!=='pending') return;
+  if(!confirm('ปฏิเสธคำขอปรับ OT นี้? (จะจ่ายตามที่ระบบคิด)')) return;
+  await setDoc(doc(db,'otedits',id),{status:'rejected',decidedBy:ME,decidedAt:serverTimestamp()},{merge:true});
+  toast('ok','ปฏิเสธแล้ว','n');
+};
+
+/* ── วันหยุดบริษัท ── */
+window.addHoliday=async()=>{
+  if(!canEditMoney()) return toast('no','เฉพาะ Admin หรือ Accountant','s');
+  const date=$('holdate').value;
+  if(!date) return toast('no','เลือกวันที่ก่อน','s');
+  await setDoc(doc(db,'holidays',date), {date, name:$('holname').value.trim()||'วันหยุดบริษัท', by:ME, at:serverTimestamp()});
+  $('holname').value=''; toast('ok','เพิ่มวันหยุดแล้ว','s');
+};
+window.delHoliday=async date=>{
+  if(!canEditMoney()) return;
+  if(!confirm('ลบวันหยุด '+date+'?')) return;
+  await deleteDoc(doc(db,'holidays',date));
 };
 
 /* ── หักอื่นๆ (กรอกเอง ต่อคนต่อเดือน) : แก้ไข/เพิ่มหลายรายการได้ ── */
@@ -1678,10 +1783,13 @@ window.exportPay=()=>{
   const month=$('pmonth').value || dstr(new Date()).slice(0,7);
   const R=moneyRows(month);
   const rows=[['รหัส','ชื่อ','ธนาคาร','เลขที่บัญชี','เลข ปกส.','วันทำงาน','สาย(นาที)',
-    'OT บัตรตอก(ชม.)','OT อนุมัติ(ชม.)','ค่าแรง+เบี้ยเลี้ยง','ค่า OT','รายได้รวม',
+    'OT 1.5x(ชม)','OT 2x วันหยุด(ชม)','OT 3x วันหยุด(ชม)','OT คิดจริง(บาท)','OT ที่จ่าย(บาท)',
+    'ค่าแรง+เบี้ยเลี้ยง','ค่า OT','รายได้รวม',
     'ปกส.(หัก)','ภาษี','หักสาย','หักเงินกู้','หักเบิกล่วงหน้า','หักอื่นๆ(กรอกเอง)','รายละเอียดหักอื่นๆ','สุทธิ','ปกส.นายจ้าง']];
   R.forEach(r=>rows.push([r.e.code, r.e.name, r.pr?.bank||'', r.pr?.acc||'', r.pr?.ssoNo||'',
-    r.daysPresent, r.lateMin, +(r.otEvidence/60).toFixed(2), +(r.otApproved/60).toFixed(2),
+    r.daysPresent, r.lateMin,
+    +((r.ot15||0)/60).toFixed(2), +((r.ot2||0)/60).toFixed(2), +((r.ot3||0)/60).toFixed(2),
+    +(r.otAutoPay||0).toFixed(2), +(r.otPay||0).toFixed(2),
     +r.gross.toFixed(2), +r.otPay.toFixed(2), +r.totalEarn.toFixed(2),
     +r.sso.toFixed(2), +r.tax.toFixed(2), +r.lateDed.toFixed(2),
     +r.loanDed.toFixed(2), +r.advDed.toFixed(2), +(r.extraDed||0).toFixed(2),
@@ -1783,6 +1891,13 @@ function roleList(){
 /* ── Attendance maths — identical rules to the backend engine ── */
 function punchesOf(code){ return PUNCH.filter(p=>p.code===code); }
 
+/* วันหยุด = วันอาทิตย์ หรือ วันหยุดบริษัทที่ตั้งไว้ (ใช้แยกอัตรา OT 2×/3×) */
+function isHolidayDate(date){
+  if(HOLIDAYS[date]) return true;
+  const d=new Date(date+'T00:00:00');
+  return d.getDay()===0;   // อาทิตย์
+}
+
 function days(code){
   const by={};
   punchesOf(code).forEach(p=>(by[p.date]??=[]).push(p));
@@ -1790,7 +1905,7 @@ function days(code){
     ps.sort((a,b)=>a.min-b.min);
     const i=ps.find(p=>p.type==='in'), o=[...ps].reverse().find(p=>p.type==='out');
     const proj=i?.projectName||o?.projectName||'—';
-    if(!i||!o) return {date,incomplete:true,worked:0,late:0,ot:0,in:i||null,out:o||null,proj};
+    if(!i||!o) return {date,incomplete:true,worked:0,late:0,ot:0,ot15:0,ot2:0,ot3:0,holiday:isHolidayDate(date),in:i||null,out:o||null,proj};
 
     /* The break is deducted even when nobody punched it. He ate. Everybody eats. */
     const worked=Math.max(0,o.min-i.min-SCH.brk);
@@ -1799,11 +1914,20 @@ function days(code){
        Grace forgives lateness; it does not move the clock. */
     const late=i.min>SCH.start+SCH.grace ? i.min-SCH.start : 0;
 
-    /* OT is EVIDENCE, never payment. Rounded DOWN — rounding up is a decision
-       about the company's money, and it belongs to a human. */
-    let ot=Math.max(0,worked-SCH.std);
-    ot = ot<30 ? 0 : Math.floor(ot/30)*30;
-    return {date,incomplete:false,worked,late,ot,in:i,out:o,proj};
+    /* OT คิดตามกฎหมายแรงงาน — แยกตามชนิดวัน (ปัดลงทีละ 30 นาที)
+       • วันทำงานปกติ  : ชั่วโมงเกินเวลางาน = 1.5×  (ot15)
+       • วันหยุด        : ชั่วโมงในเวลางานปกติ = 2× (ot2) · ที่เกินเวลางาน = 3× (ot3) */
+    const holiday=isHolidayDate(date);
+    const r30=m=>m<30?0:Math.floor(m/30)*30;
+    let ot15=0, ot2=0, ot3=0;
+    if(holiday){
+      ot2 = Math.min(worked, SCH.std);
+      ot3 = r30(Math.max(0, worked-SCH.std));
+    } else {
+      ot15 = r30(Math.max(0, worked-SCH.std));
+    }
+    const ot = ot15+ot3;   // OT ที่เลยเวลางาน (สำหรับคอลัมน์ตารางเวลา)
+    return {date,incomplete:false,worked,late,ot,ot15,ot2,ot3,holiday,in:i,out:o,proj};
   }).sort((a,b)=>b.date.localeCompare(a.date));
 }
 const todayOf=code=>days(code).find(d=>d.date===dstr(new Date()));
@@ -2008,7 +2132,11 @@ function alertsView(){
   const pend=PEDITS.filter(r=>r.status==='pending').sort((a,b)=>bySeconds(a,b,'requestedAt'));
   const done=PEDITS.filter(r=>r.status!=='pending').sort((a,b)=>bySeconds(a,b,'decidedAt')).slice(0,20);
 
-  const nb=$('t-n'); if(nb) nb.innerHTML='แจ้งเตือน'+(pend.length?` <span class="chip r" style="padding:1px 7px">${pend.length}</span>`:'');
+  const otAll=Object.values(OTEDIT);
+  const otPend=otAll.filter(r=>r.status==='pending').sort((a,b)=>bySeconds(a,b,'requestedAt'));
+  const otDone=otAll.filter(r=>r.status!=='pending').sort((a,b)=>bySeconds(a,b,'decidedAt')).slice(0,15);
+
+  const nb=$('t-n'); if(nb) nb.innerHTML='แจ้งเตือน'+((pend.length+otPend.length)?` <span class="chip r" style="padding:1px 7px">${pend.length+otPend.length}</span>`:'');
 
   const row=r=>`<tr>
     <td class="mono">${r.date}</td>
@@ -2037,6 +2165,24 @@ function alertsView(){
     <td><span class="chip a">${a.message||'นอกพื้นที่'}</span></td>
     <td>${a.lat!=null?`<a class="chip" target="_blank" href="https://www.google.com/maps?q=${a.lat},${a.lng}">แผนที่</a>`:'—'}</td>
   </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;padding:26px;color:var(--ink-3)">ไม่มีการแจ้งเตือน</td></tr>';
+
+  const otRow=r=>`<tr>
+    <td class="mono">${r.month}</td>
+    <td><b>${r.name||r.code}</b><div class="mono" style="font-size:11px;color:var(--ink-3)">${r.code}</div></td>
+    <td class="num" style="color:var(--ink-3)">฿${B(+r.autoPay||0)}</td>
+    <td class="num"><b>฿${B(+r.otPay||0)}</b></td>
+    <td style="font-size:12px;color:var(--ink-3)">${r.reason||'—'}</td>
+    <td style="white-space:nowrap">${r.status==='pending'
+      ? (dir
+          ? `<button class="mini" onclick="approveOTedit('${r.id}')">อนุมัติ</button>
+             <button class="btn rd" style="padding:4px 9px;min-height:30px;font-size:12px" onclick="rejectOTedit('${r.id}')">ปฏิเสธ</button>`
+          : '<span class="chip a">รอกรรมการอนุมัติ</span>')
+      : `<span class="chip ${r.status==='approved'?'g':'r'}">${r.status==='approved'?'อนุมัติแล้ว':'ปฏิเสธแล้ว'}</span>
+         <div style="font-size:10.5px;color:var(--ink-3)">${r.decidedBy||''}</div>`}</td>
+  </tr>`;
+  if($('otlist')) $('otlist').innerHTML = (otPend.length||otDone.length)
+    ? [...otPend,...otDone].map(otRow).join('')
+    : '<tr><td colspan="6" style="text-align:center;padding:26px;color:var(--ink-3)">ไม่มีคำขอปรับ OT</td></tr>';
 }
 
 function toast(k,m,w){
