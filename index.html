@@ -130,6 +130,17 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
   nav{padding:12px 12px 0}main{padding:14px 12px 70px}
   .cards{grid-template-columns:1fr}.board{grid-template-columns:1fr 1fr}.kpi{flex:1;min-width:0}
 }
+/* ── ปุ่มเล็ก + drawer แก้ไข (การเงิน / หักอื่นๆ) ── */
+.mini{padding:5px 11px;border-radius:8px;background:var(--cyan-l);color:var(--cyan-d);font-size:12px;font-weight:600;min-height:32px}
+.drawer{position:fixed;inset:0;background:rgba(20,30,40,.45);display:none;z-index:1000;justify-content:flex-end}
+.drawer.open{display:flex}
+.dpanel{width:min(560px,100%);max-height:100vh;background:#fff;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18);animation:slidein .18s ease}
+@keyframes slidein{from{transform:translateX(30px);opacity:.6}to{transform:none;opacity:1}}
+.dpanel .dh{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line)}
+.dpanel .dh h2{font-size:18px;margin:0}.dpanel .dh .m{font-size:12px;color:var(--ink-3);margin-top:2px}
+.dpanel .dh .x{margin-left:auto;font-size:26px;line-height:1;color:var(--ink-3);cursor:pointer;background:none;min-height:auto;padding:0 6px}
+.dpanel .db{padding:18px 20px;overflow:auto}
+.dpanel .f label{display:block;font-size:12px;color:var(--ink-2);margin-bottom:4px}
 </style>
 </head>
 <body>
@@ -410,6 +421,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
       <th class="num">ปกส.</th><th class="num">ภาษี</th><th class="num">หักอื่น</th><th class="num">สุทธิ</th></tr></thead>
     <tbody id="slist"></tbody>
     <tfoot id="sfoot"></tfoot></table></div></div>
+  <div class="toast" id="stoast"></div>
 </div>
 
 <!-- ══ ROLES ══ -->
@@ -455,6 +467,9 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 
 </main>
 
+<!-- แผงแก้ไข (การเงิน / หักอื่นๆ) — คลิกพื้นหลังเพื่อปิด -->
+<div id="drawer" class="drawer" onclick="if(event.target===this)closeD()"></div>
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
@@ -486,7 +501,7 @@ import { getFirestore, collection, doc, setDoc, getDoc, addDoc, deleteDoc, onSna
    uploaded, the phone is running a CACHED copy and no amount of fixing the code
    will change what you see. That distinction cost us a round trip; it will not
    cost another. */
-const VERSION='v14';
+const VERSION='v15';
 
 /* ── WHO MAY SEE MONEY ──────────────────────────────────────────────────────
    These four addresses are the root of trust. They are ALSO written into the
@@ -529,7 +544,7 @@ let db=null, auth=null, uid=null;
 let EMP=[], PUNCH=[], PROJ=[];
 let stream=null, models=false, matched=null, shots=[], loop=null, pending=null, busy=false;
 let ME=null, MYROLE='staff', PAY={}, LOANS=[], ADVANCES=[], OTAPPROVE={}, ROLES=[];
-let PEDITS=[], ALERTS=[];
+let PEDITS=[], ALERTS=[], PAYADJ={};
 const isAdmin = () => !!ME && ADMINS.includes(ME.toLowerCase());
 /* กรรมการ 3 คนแรก — เท่านั้นที่อนุมัติการลบ/แก้เวลาได้ */
 const DIRECTORS = ADMINS.slice(0,3);
@@ -743,6 +758,9 @@ function listen(){
     }, ()=>{});
     onSnapshot(collection(db,'otapprovals'), s=>{
       OTAPPROVE={}; s.docs.forEach(d=>OTAPPROVE[d.id]=d.data()); all();
+    }, ()=>{});
+    onSnapshot(collection(db,'payadjust'), s=>{
+      PAYADJ={}; s.docs.forEach(d=>PAYADJ[d.id]=d.data()); all();
     }, ()=>{});
   }
   if(isAdmin()){
@@ -1410,12 +1428,17 @@ function moneyRows(month){
     const advDed  = ADVANCES.filter(a=>a.code===e.code && a.status==='pending')
       .reduce((s,a)=>s+a.amount, 0);
 
-    const otherDed = lateDed + loanDed + advDed;
+    /* หักอื่นๆ ที่กรอกเอง (ต่อคนต่อเดือน) — เก็บใน payadjust/{code_month} */
+    const adj = PAYADJ[key];
+    const extraItems = (adj?.items||[]).filter(it=>it && (it.label||it.amount));
+    const extraDed = extraItems.reduce((s,it)=>s+(+it.amount||0),0);
+
+    const otherDed = lateDed + loanDed + advDed + extraDed;
     const net = totalEarn - sso - tax - otherDed;
 
     return {e, pr, daysPresent, lateMin, otEvidence, otApproved,
             gross, otPay, totalEarn, sso, ssoEmployer: sso, tax,
-            lateDed, loanDed, advDed, otherDed, net,
+            lateDed, loanDed, advDed, extraDed, extraItems, otherDed, net,
             incomplete: !pr || !pr.base || !pr.bank || pr.children==null};
   });
 }
@@ -1431,11 +1454,12 @@ function money(){
   $('m-sso').textContent  =B0(R.reduce((s,r)=>s+r.ssoEmployer,0));
   $('m-bad').textContent  =R.filter(r=>r.incomplete).length;
 
+  const ed=canEditMoney();
   $('mlist').innerHTML = EMP.map(e=>{
     const pr=PAY[e.code];
-    if(!pr) return `<tr><td class="mono">${e.code}</td><td><b>${e.name}</b></td>
+    if(!pr) return `<tr><td class="mono">${e.code||'<span class="chip r">ไม่มีรหัส</span>'}</td><td><b>${e.name}</b></td>
       <td colspan="6"><span class="chip r">ยังไม่มีข้อมูลการเงิน</span></td>
-      <td><button class="mini" onclick="editPay('${e.code}')">เพิ่ม</button></td></tr>`;
+      <td>${ed?`<button class="mini" onclick="editPay('${e.code}')">เพิ่ม</button>`:''}</td></tr>`;
     return `<tr>
       <td class="mono">${e.code}</td><td><b>${e.name}</b></td>
       <td>${pr.basis==='daily'?'รายวัน':'รายเดือน'}</td>
@@ -1446,7 +1470,7 @@ function money(){
       <td>${pr.bank?`<span class="chip g">${pr.bank}</span>`:'<span class="chip r">ไม่มีบัญชี</span>'}</td>
       <td>${pr.exemptSso?`<span class="chip a">ยกเว้น · ${pr.ssoReason||''}</span>`
         :(pr.ssoNo?'<span class="chip g">มี</span>':'<span class="chip r">ไม่มีเลข</span>')}</td>
-      <td><button class="mini" onclick="editPay('${e.code}')">แก้ไข</button></td></tr>`;
+      <td>${ed?`<button class="mini" onclick="editPay('${e.code}')">แก้ไข</button>`:'<span style="font-size:11px;color:var(--ink-3)">อ่านอย่างเดียว</span>'}</td></tr>`;
   }).join('');
 
   $('llist').innerHTML = [...LOANS,...ADVANCES].length
@@ -1466,12 +1490,18 @@ function money(){
   $('lwho').innerHTML = EMP.map(e=>`<option value="${e.code}">${e.code} — ${e.name}</option>`).join('');
 }
 
+/* แผงเลื่อน (drawer) — เดิมเรียก openD/closeD แต่ไม่เคยถูกนิยาม ทำให้ปุ่ม "แก้ไข"
+   การเงิน error ทุกครั้ง (นี่คือสาเหตุที่แอดมินแก้บัญชี/การเงินไม่ได้) */
+window.openD=()=>{ $('drawer').classList.add('open'); document.body.style.overflow='hidden'; };
+window.closeD=()=>{ $('drawer').classList.remove('open'); document.body.style.overflow=''; $('drawer').innerHTML=''; };
+
 window.editPay=code=>{
+  if(!canEditMoney()) return toast('no','เฉพาะ Admin หรือ Accountant เท่านั้นที่แก้ไขการเงินได้','p');
   const e=EMP.find(x=>x.code===code);
   const pr=PAY[code]||{basis:'monthly',freq:'monthly',base:0,
     alw:{'ตำแหน่ง':0,'ประสบการณ์':0,'โทรศัพท์':0,'น้ำมัน':0},
     bank:'',acc:'',ssoNo:'',children:null,spouse:false,exemptSso:false,ssoReason:''};
-  $('drawer').innerHTML=`
+  $('drawer').innerHTML=`<div class="dpanel">
     <div class="dh"><div><h2>${e.name}</h2><div class="m">${e.code} · ${e.pos}</div></div>
       <button class="x" onclick="closeD()">×</button></div>
     <div class="db"><div class="edit" style="background:#fff;border-radius:12px;padding:18px;box-shadow:var(--sh)">
@@ -1508,11 +1538,12 @@ window.editPay=code=>{
       <p style="font-size:12px;color:var(--ink-3);margin-top:12px">
         <b>จำนวนบุตรว่าง = หักภาษีเกินจริง</b> ไม่ใช่ “ปลอดภัยไว้ก่อน”<br>
         <b>ยกเว้น ปกส. ตัดทั้งสองฝั่ง</b> — ทั้งฝั่งหักและฝั่งสมทบนายจ้าง</p>
-    </div></div>`;
+    </div></div></div>`;
   openD();
 };
 
 window.savePay=async code=>{
+  if(!canEditMoney()) return toast('no','ไม่มีสิทธิ์แก้ไขการเงิน','p');
   const g=k=>$('p-'+k).value.trim();
   const ex=g('ex');
   const ch=g('ch');
@@ -1575,7 +1606,12 @@ function payslips(){
     <td class="num"><b>${B(r.totalEarn)}</b></td>
     <td class="num" style="color:${r.pr?.exemptSso?'var(--ink-3)':'inherit'}">${r.sso?B(r.sso):'0'}</td>
     <td class="num">${B(r.tax)}</td>
-    <td class="num" style="color:${r.otherDed?'var(--rose)':'var(--ink-3)'}">${r.otherDed?B(r.otherDed):'—'}</td>
+    <td class="num" style="color:${r.otherDed?'var(--rose)':'var(--ink-3)'}">
+      ${r.otherDed?B(r.otherDed):'—'}
+      ${(r.lateDed||r.loanDed||r.advDed||r.extraDed)?`<div style="font-size:9.5px;color:var(--ink-3);line-height:1.4;font-family:'IBM Plex Sans Thai'">${
+        [r.lateDed?'สาย '+B0(r.lateDed):'',r.loanDed?'กู้ '+B0(r.loanDed):'',r.advDed?'เบิก '+B0(r.advDed):'',r.extraDed?'อื่นๆ '+B0(r.extraDed):''].filter(Boolean).join(' · ')}</div>`:''}
+      ${canEditMoney()?`<button class="mini" style="margin-top:4px" onclick="editDed('${r.e.code}','${month}')">แก้หักอื่นๆ</button>`:''}
+    </td>
     <td class="num"><b style="color:var(--indigo)">${B(r.net)}</b></td>
   </tr>`}).join('');
 
@@ -1596,17 +1632,57 @@ window.approveOT=async(code,month,hours,evidenceMin)=>{
     {code, month, approvedMin:min, evidenceMin, by:ME, at:serverTimestamp()});
 };
 
+/* ── หักอื่นๆ (กรอกเอง ต่อคนต่อเดือน) : แก้ไข/เพิ่มหลายรายการได้ ── */
+const dedRowHtml=(it={})=>`<div class="ded-row" style="display:flex;gap:8px;margin-bottom:8px">
+  <input class="tx" data-f="label" value="${String(it.label||'').replace(/"/g,'&quot;')}" placeholder="รายการ เช่น เบิกชุดฟอร์ม / ค่าปรับ" style="flex:1">
+  <input class="tx" type="number" data-f="amount" value="${it.amount??''}" placeholder="บาท" style="width:120px;text-align:right">
+  <button class="btn rd" style="min-height:46px;padding:0 12px" onclick="this.closest('.ded-row').remove()">ลบ</button>
+</div>`;
+window.editDed=(code,month)=>{
+  if(!canEditMoney()) return toast('no','เฉพาะ Admin หรือ Accountant เท่านั้น','s');
+  const e=EMP.find(x=>x.code===code);
+  const items=(PAYADJ[code+'_'+month]?.items||[]).slice();
+  if(!items.length) items.push({});
+  $('drawer').innerHTML=`<div class="dpanel">
+    <div class="dh"><div><h2>หักอื่นๆ — ${e?e.name:code}</h2><div class="m">${code} · เดือน ${month}</div></div>
+      <button class="x" onclick="closeD()">×</button></div>
+    <div class="db"><div class="edit" style="background:#fff;border-radius:12px;padding:18px;box-shadow:var(--sh)">
+      <p style="font-size:12.5px;color:var(--ink-3);margin-bottom:12px">รายการหักที่กรอกเองสำหรับเดือนนี้ (นอกเหนือจากหักสาย/เงินกู้/เบิกล่วงหน้าที่ระบบคิดให้อัตโนมัติ)</p>
+      <div id="dedrows">${items.map(dedRowHtml).join('')}</div>
+      <button class="btn" onclick="$('dedrows').insertAdjacentHTML('beforeend', window._dedRow())">+ เพิ่มรายการ</button>
+      <div style="margin-top:16px;display:flex;gap:9px">
+        <button class="btn cy" onclick="saveDed('${code}','${month}')">บันทึก</button>
+        <button class="btn" onclick="closeD()">ยกเลิก</button>
+      </div>
+    </div></div></div>`;
+  openD();
+};
+window._dedRow=()=>dedRowHtml();
+window.saveDed=async(code,month)=>{
+  if(!canEditMoney()) return toast('no','ไม่มีสิทธิ์แก้ไขการเงิน','s');
+  const items=[...$('dedrows').querySelectorAll('.ded-row')].map(r=>({
+    label:r.querySelector('[data-f=label]').value.trim(),
+    amount:+r.querySelector('[data-f=amount]').value||0
+  })).filter(it=>it.label||it.amount);
+  await setDoc(doc(db,'payadjust', code+'_'+month),
+    {code, month, items, by:ME, at:serverTimestamp()});
+  closeD();
+  toast('ok','บันทึกรายการหักอื่นๆ แล้ว','s');
+};
+
 window.exportPay=()=>{
   const month=$('pmonth').value || dstr(new Date()).slice(0,7);
   const R=moneyRows(month);
   const rows=[['รหัส','ชื่อ','ธนาคาร','เลขที่บัญชี','เลข ปกส.','วันทำงาน','สาย(นาที)',
     'OT บัตรตอก(ชม.)','OT อนุมัติ(ชม.)','ค่าแรง+เบี้ยเลี้ยง','ค่า OT','รายได้รวม',
-    'ปกส.(หัก)','ภาษี','หักสาย','หักเงินกู้','หักเบิกล่วงหน้า','สุทธิ','ปกส.นายจ้าง']];
+    'ปกส.(หัก)','ภาษี','หักสาย','หักเงินกู้','หักเบิกล่วงหน้า','หักอื่นๆ(กรอกเอง)','รายละเอียดหักอื่นๆ','สุทธิ','ปกส.นายจ้าง']];
   R.forEach(r=>rows.push([r.e.code, r.e.name, r.pr?.bank||'', r.pr?.acc||'', r.pr?.ssoNo||'',
     r.daysPresent, r.lateMin, +(r.otEvidence/60).toFixed(2), +(r.otApproved/60).toFixed(2),
     +r.gross.toFixed(2), +r.otPay.toFixed(2), +r.totalEarn.toFixed(2),
     +r.sso.toFixed(2), +r.tax.toFixed(2), +r.lateDed.toFixed(2),
-    +r.loanDed.toFixed(2), +r.advDed.toFixed(2), +r.net.toFixed(2), +r.ssoEmployer.toFixed(2)]));
+    +r.loanDed.toFixed(2), +r.advDed.toFixed(2), +(r.extraDed||0).toFixed(2),
+    (r.extraItems||[]).map(it=>`${it.label} ${it.amount}`).join('; '),
+    +r.net.toFixed(2), +r.ssoEmployer.toFixed(2)]));
   const ws=XLSX.utils.aoa_to_sheet(rows);
   ws['!cols']=rows[0].map(()=>({wch:14}));
   const wb=XLSX.utils.book_new();
@@ -1639,10 +1715,15 @@ function readPay(f){
       const wb=XLSX.read(ev.target.result,{type:'array'});
       const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{range:2,defval:''});
       let ok=0, bad=[];
+      /* จับคู่รหัสแบบยืดหยุ่น: ตัดช่องว่าง + ไม่สนตัวพิมพ์ใหญ่เล็ก
+         เพื่อกันปัญหา "ค่าแรงไม่ขึ้น" จากรหัสในไฟล์ไม่ตรงเป๊ะกับทะเบียน */
+      const norm=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,'');
       for(const [i,row] of rows.entries()){
-        const code=String(row['รหัสพนักงาน']||'').trim();
-        if(!code) continue;
-        if(!EMP.some(e=>e.code===code)){ bad.push(`แถว ${i+4}: ไม่พบรหัส ${code} ในทะเบียน`); continue; }
+        const raw=String(row['รหัสพนักงาน']||'').trim();
+        if(!raw) continue;
+        const emp = EMP.find(e=>e.code===raw) || EMP.find(e=>norm(e.code)===norm(raw));
+        if(!emp){ bad.push(`แถว ${i+4}: ไม่พบรหัส "${raw}"`); continue; }
+        const code=emp.code;   // ใช้รหัสตามทะเบียนเป็นตัวจริง เพื่อให้ค้นเจอตอนแสดงผล
         const ex=String(row['ยกเว้นปกส.']||'').trim();
         await setDoc(doc(db,'payroll',code), {
           code,
@@ -1662,7 +1743,8 @@ function readPay(f){
         ok++;
       }
       let msg=`นำเข้า ${ok} คน`;
-      if(bad.length) msg+=` · ผิดพลาด ${bad.length}: `+bad.slice(0,2).join(', ');
+      if(bad.length){ msg+=` · รหัสไม่ตรงทะเบียน ${bad.length} รายการ: `+bad.slice(0,6).join(' | ')+(bad.length>6?' …':'');
+        log('นำเข้าการเงิน — รหัสไม่ตรง:\n'+bad.join('\n'),'e'); }
       toast(bad.length?'no':'ok', msg, 'p');
     }catch(err){ toast('no','อ่านไฟล์ไม่ได้: '+err.message,'p'); }
   };
@@ -1956,7 +2038,7 @@ function alertsView(){
 function toast(k,m,w){
   const id = w==='f'?'ftoast' : w==='a'?'atoast' : w==='p'?'ptoast'
            : w==='l'?'ltoast' : w==='u'?'utoast' : w==='t'?'ttoast'
-           : w==='n'?'ntoast' : 'toast';
+           : w==='n'?'ntoast' : w==='s'?'stoast' : 'toast';
   const t=$(id); if(!t) return;
   t.className='toast '+(k==='ok'?'ok':'no'); t.textContent=m;
   clearTimeout(window['_'+id]); window['_'+id]=setTimeout(()=>t.className='toast',7000);
