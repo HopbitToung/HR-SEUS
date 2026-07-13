@@ -1,3 +1,6 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SEUS — ลงเวลาด้วยใบหน้า</title>
@@ -138,6 +141,27 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 .dpanel .dh .x{margin-left:auto;font-size:26px;line-height:1;color:var(--ink-3);cursor:pointer;background:none;min-height:auto;padding:0 6px}
 .dpanel .db{padding:18px 20px;overflow:auto}
 .dpanel .f label{display:block;font-size:12px;color:var(--ink-2);margin-bottom:4px}
+
+/* ===== HR-SEUS v13 ===== */
+.cam{position:relative}
+#scanRing{position:absolute;inset:0;margin:auto;width:78%;max-width:320px;aspect-ratio:1;pointer-events:none;z-index:5}
+#scanRing circle{fill:none;stroke-width:6;transform:rotate(-90deg);transform-origin:center}
+#scanRing .trk{stroke:rgba(255,255,255,.18)}
+#scanRing .bar{stroke:#3377cc;stroke-linecap:round;transition:stroke-dashoffset .12s linear}
+.cam.searching #scanRing .bar{stroke:#f0ad4e}
+.cam.ok #scanRing .bar{stroke:#2e9e5b}
+.cam.bad #scanRing .bar{stroke:#d9534f}
+#scanMsg{position:absolute;left:0;right:0;bottom:8px;text-align:center;color:#fff;font-size:14px;text-shadow:0 1px 3px #000;padding:0 10px;z-index:5}
+.v13-mgmt{margin:10px 0;padding:10px;border:1px solid rgba(0,0,0,.15);border-radius:10px}
+#np-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.v13-prow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.08)}
+.fp-group{margin:14px 0;border:1px solid rgba(0,0,0,.12);border-radius:10px;padding:10px}
+.fp-group h4{margin:0 0 8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.fp-table{width:100%;border-collapse:collapse}
+.fp-table th,.fp-table td{border-bottom:1px solid rgba(0,0,0,.08);padding:6px 8px;font-size:14px}
+.pill{background:#eef;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;color:#334}
+.v13-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px}
+.v13-modal{background:#fff;color:#111;border-radius:12px;max-width:560px;width:100%;max-height:85vh;overflow:auto;padding:16px}
 </style>
 </head>
 <body>
@@ -1058,35 +1082,7 @@ window.startCam=async w=>{
   }
 };
 
-function idLoop(){
-  const v=$('vid'), cam=$('cam');
-  clearInterval(loop);
-  loop=setInterval(async()=>{
-    if(!v.videoWidth||busy) return;
-    busy=true;
-    try{
-      const d=await faceapi.detectSingleFace(v,
-          new faceapi.TinyFaceDetectorOptions({inputSize:416, scoreThreshold:0.3}))
-        .withFaceLandmarks().withFaceDescriptor();
-      if(!d){ matched=null; cam.className='cam bad';
-        $('hst').textContent='ไม่พบใบหน้า — เข้าใกล้กล้องขึ้น'; $('hsc').textContent=''; return gate(); }
-      let best=null,bd=99;
-      for(const e of EMP){
-        for(const f of faceVecs(e)){
-          const x=faceapi.euclideanDistance(d.descriptor, Float32Array.from(f));
-          if(x<bd){ bd=x; best=e; }
-        }
-      }
-      if(best&&bd<THRESHOLD){ matched=best; cam.className='cam ok';
-        $('hst').textContent=best.name; $('hsc').textContent='ตรง '+(100-bd*100).toFixed(0)+'%';
-      }else{ matched=null; cam.className='cam bad';
-        $('hst').textContent=EMP.some(e=>faceVecs(e).length)?'ไม่ตรงกับใครในทะเบียน':'ยังไม่มีใครลงทะเบียนใบหน้า';
-        $('hsc').textContent=''; }
-      gate();
-    }catch(err){ showErr('idLoop: '+err.message); }
-    finally{ busy=false; }
-  },500);
-}
+async function idLoop(){ try{ clearInterval(loop); }catch(e){} _voteCode=null;_voteN=0;_scanT0=0;_locked=false; var busy=false; loop=setInterval(async function(){ if(busy||_locked) return; var v=$('vid'); if(!v||!v.videoWidth||!models) return; busy=true; try{ if(!_scanT0)_scanT0=Date.now(); var det=await faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions({inputSize:416,scoreThreshold:FACE.DET_SCORE})).withFaceLandmarks().withFaceDescriptor(); var q=faceQuality(det,v); if(!q.ok){ v13NoMatch('searching',0.05,q.msg); return; } var m=bestMatch(det.descriptor); if(!m.emp||m.dist>=FACE.MATCH_DIST){ v13NoMatch('bad',0.15,'ไม่พบใบหน้านี้ในระบบ'); return; } if(m.margin<FACE.MATCH_MARGIN){ v13NoMatch('searching',0.3,'ยังไม่แน่ใจ (หน้าคล้ายผู้อื่น) ขยับเข้าใกล้อีกนิด'); return; } if(m.emp.code===_voteCode)_voteN++; else {_voteCode=m.emp.code;_voteN=1;} if(_voteN>=FACE.VOTE_FRAMES){ matched=m.emp; _locked=true; var pc=(100-m.dist*100).toFixed(0)+'%'; setScan('ok',1,'ยืนยัน: '+m.emp.name+'  ('+pc+')'); try{$('cam').className='cam ok';}catch(e){} try{$('hst').textContent='ยืนยัน: '+m.emp.name;}catch(e){} try{$('hsc').textContent=pc;}catch(e){} try{gate();}catch(e){} setTimeout(function(){resetScan();},6000); return; } setScan('searching',_voteN/FACE.VOTE_FRAMES,'กำลังยืนยัน… '+m.emp.name); try{$('hst').textContent='กำลังยืนยัน… '+m.emp.name;}catch(e){} }catch(err){}finally{busy=false;} },400); }
 
 function enrolLoop(){
   const v=$('fvid'), cam=$('fcam');
@@ -2213,6 +2209,66 @@ if(!window.isSecureContext) $('ctx')?.classList.remove('hide');
 /* Whatever else is broken, the user must be able to log in. */
 try{ boot(); }
 catch(e){ showErr('boot ล้มเหลว: '+e.message); }
+
+
+/* ===== HR-SEUS v13 add-on (auto-merged) ===== */
+var FACE={DET_SCORE:0.20,MIN_FACE_RATIO:0.16,MAX_OFFCENTER:0.30,MIN_QSCORE:0.45,MATCH_DIST:0.50,MATCH_MARGIN:0.06,VOTE_FRAMES:4,SCAN_MS:5000};
+var RING_C=339.29,_voteCode=null,_voteN=0,_scanT0=0,_locked=false;
+
+
+function ymNow(){ return new Date().toISOString().slice(0,7); }
+
+function setScan(state,pct,msg){ var cam=$('cam'); if(!cam)return; cam.classList.remove('searching','ok','bad'); if(state)cam.classList.add(state); var bar=document.querySelector('#scanRing .bar'); if(bar)bar.style.strokeDashoffset=RING_C*(1-Math.max(0,Math.min(1,pct||0))); var mm=$('scanMsg'); if(mm&&msg!=null)mm.textContent=msg; }
+
+function faceQuality(det,video){ if(!det)return{ok:false,msg:'ไม่พบใบหน้า — เข้ามาในกล้อง'}; var b=det.detection.box,vw=video.videoWidth||1; if(b.width/vw<FACE.MIN_FACE_RATIO)return{ok:false,msg:'เข้าใกล้กล้องอีกนิด'}; var cx=b.x+b.width/2; if(Math.abs(cx-vw/2)/vw>FACE.MAX_OFFCENTER)return{ok:false,msg:'ขยับใบหน้าให้อยู่กลางวง'}; if((det.detection.score||0)<FACE.MIN_QSCORE)return{ok:false,msg:'ภาพไม่ชัด ปรับแสงให้สว่างขึ้น'}; return{ok:true}; }
+
+function bestMatch(desc){ var bd=99,bc=null,bd2=99; for(var i=0;i<EMP.length;i++){var e=EMP[i],em=99,vs=faceVecs(e); for(var j=0;j<vs.length;j++){var x=faceapi.euclideanDistance(desc,Float32Array.from(vs[j])); if(x<em)em=x;} if(em<bd){bd2=bd;bd=em;bc=e;} else if(em<bd2){bd2=em;}} return{emp:bc,dist:bd,margin:(bd2-bd)}; }
+
+function v13NoMatch(state,pct,msg){ _voteCode=null;_voteN=0; setScan(state,pct,msg); try{$('cam').className='cam';}catch(e){} try{$('hst').textContent=msg;}catch(e){} try{$('hsc').textContent='';}catch(e){} if(matched!==null){matched=null;try{gate();}catch(e){}} }
+
+function resetScan(){ _voteCode=null;_voteN=0;_scanT0=0;_locked=false;matched=null; try{$('cam').className='cam';}catch(e){} setScan('searching',0,'เล็งใบหน้าให้อยู่ในวง'); try{gate();}catch(e){} }
+
+function nextProjId(){ var n=0; for(var i=0;i<PROJ.length;i++){var mm=/^P(\d+)$/.exec(PROJ[i].id||''); if(mm)n=Math.max(n,+mm[1]);} return 'P'+(n+1); }
+
+async function addProject(){ if(!isAdmin())return alert('เฉพาะแอดมิน'); var name=(($('np-name')||{}).value||'').trim(); if(!name)return alert('กรุณาใส่ชื่อโครงการ'); var code=((($('np-code')||{}).value||'').trim()||name).slice(0,20); var id=nextProjId(); await setDoc(doc(db,'projects',id),{id:id,code:code,name:name,kind:'project',lat:0,lng:0,radius:(typeof DEFAULT_RADIUS!=='undefined'?DEFAULT_RADIUS:200),createdAt:serverTimestamp()}); $('np-name').value='';$('np-code').value=''; alert('เพิ่มโครงการแล้ว: '+name+' — กดปุ่ม "พิกัด" ในรายการเพื่อปักหมุด geofence'); }
+
+async function renameProject(id){ if(!isAdmin())return alert('เฉพาะแอดมิน'); var p=null; for(var i=0;i<PROJ.length;i++)if(PROJ[i].id===id)p=PROJ[i]; if(!p)return; var name=prompt('ชื่อโครงการใหม่:',p.name); if(name==null)return; var code=prompt('รหัสโครงการ:',p.code||''); if(code==null)return; await setDoc(doc(db,'projects',id),{name:name.trim(),code:code.trim()},{merge:true}); }
+
+async function delProject(id){ if(!isAdmin())return alert('เฉพาะแอดมิน'); var p=null; for(var i=0;i<PROJ.length;i++)if(PROJ[i].id===id)p=PROJ[i]; if(!p)return; if(p.kind==='overhead')return alert('ลบ Back office ไม่ได้'); var used=false; for(var j=0;j<PUNCH.length;j++)if(PUNCH[j].projectId===id){used=true;break;} if(!confirm('ลบโครงการ "'+p.name+'" ?'+(used?' (มีประวัติเข้างานอ้างอิงอยู่ ประวัติเดิมยังเก็บชื่อไว้)':'')))return; await deleteDoc(doc(db,'projects',id)); }
+
+function empProjIds(code,month){ var s={}; for(var i=0;i<PUNCH.length;i++){var p=PUNCH[i]; if(p.code===code&&p.type==='in'&&(p.date||'').indexOf(month)===0&&p.projectId)s[p.projectId]=1;} return Object.keys(s); }
+
+function daysOn(code,month,projId){ var s={}; for(var i=0;i<PUNCH.length;i++){var p=PUNCH[i]; if(p.code===code&&p.type==='in'&&(p.date||'').indexOf(month)===0&&(!projId||p.projectId===projId))s[p.date]=1;} return Object.keys(s).length; }
+
+function projById(id){ for(var i=0;i<PROJ.length;i++)if(PROJ[i].id===id)return PROJ[i]; return null; }
+
+function boProj(){ for(var i=0;i<PROJ.length;i++)if(PROJ[i].kind==='overhead')return PROJ[i]; return{id:'BO',name:'Back office (สำนักงาน)',kind:'overhead'}; }
+
+function financeGroups(month){ var BO=boProj(); var real={}; for(var i=0;i<PROJ.length;i++)if(PROJ[i].kind==='project')real[PROJ[i].id]=1; var G={}; function push(pid,e){ if(!G[pid])G[pid]={proj:projById(pid)||BO,emps:[]}; G[pid].emps.push(e);} for(var k=0;k<EMP.length;k++){var e=EMP[k]; var ids=empProjIds(e.code,month).filter(function(id){return real[id];}); if(e.cls==='overhead'||ids.length===0)push(BO.id,e); else ids.forEach(function(id){push(id,e);});} return G; }
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c];}); }
+
+function fmtNum(n){ return (n==null||n===''||isNaN(n))?'':Number(n).toLocaleString('th-TH',{maximumFractionDigits:0}); }
+
+function renderFinanceByProject(month,onlyId){ month=month||(($('mpmonth')||{}).value)||ymNow(); if($('mpmonth')&&!$('mpmonth').value)$('mpmonth').value=month; var box=$('finByProj'); if(!box)return; var G=financeGroups(month); var pay={}; try{ var mr=(typeof moneyRows==='function')?moneyRows(month):null; if(mr&&mr.forEach)mr.forEach(function(r){if(r&&r.code)pay[r.code]=r;}); }catch(e){} function moneyOf(r){ if(!r)return ''; return r.net!=null?r.net:(r.take!=null?r.take:(r.netpay!=null?r.netpay:(r.gross!=null?r.gross:''))); } var ids=Object.keys(G).filter(function(id){return !onlyId||id===onlyId;}).sort(function(a,b){return (G[a].proj.kind==='overhead'?1:0)-(G[b].proj.kind==='overhead'?1:0);}); var html=''; for(var i=0;i<ids.length;i++){ var g=G[ids[i]],p=g.proj; var emps=g.emps.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');}); var sum=0; for(var j=0;j<emps.length;j++){var mv=Number(moneyOf(pay[emps[j].code]));if(!isNaN(mv))sum+=mv;} var rows=''; for(var j=0;j<emps.length;j++){var e=emps[j]; rows+='<tr><td>'+esc(e.name)+'</td><td>'+esc(e.pos)+'</td><td style="text-align:center">'+daysOn(e.code,month,p.kind==='project'?ids[i]:null)+'</td><td style="text-align:right">'+fmtNum(moneyOf(pay[e.code]))+'</td><td><button onclick="if(window.editPay)editPay(\''+e.code+'\')">แก้</button></td></tr>';} html+='<section class="fp-group"><h4>'+esc(p.name)+' <span class="pill">'+emps.length+' คน</span> <span class="pill">รวม '+fmtNum(sum)+' บาท</span></h4><table class="fp-table"><thead><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>วันเข้างาน</th><th>ยอดสุทธิ</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></section>';} box.innerHTML=html||'<p style="opacity:.7">ไม่มีข้อมูลเดือนนี้</p>'; }
+
+function openProjectPeople(id,month){ month=month||(($('mpmonth')||{}).value)||ymNow(); var proj=projById(id)||{id:id,name:'Back office'}; var rows={}; for(var i=0;i<PUNCH.length;i++){var p=PUNCH[i]; if(p.projectId===id&&(p.date||'').indexOf(month)===0){ if(!rows[p.code])rows[p.code]={code:p.code,name:p.name,days:{}}; if(p.type==='in')rows[p.code].days[p.date]=1;}} var list=Object.keys(rows).map(function(k){return rows[k];}).sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');}); function posOf(c){for(var i=0;i<EMP.length;i++)if(EMP[i].code===c)return EMP[i].pos||'';return '';} var body=''; if(list.length){for(var i=0;i<list.length;i++){var r=list[i]; body+='<tr><td>'+esc(r.name)+'</td><td>'+esc(posOf(r.code))+'</td><td style="text-align:center">'+Object.keys(r.days).length+'</td></tr>';}} else body='<tr><td colspan="3">ไม่มีข้อมูลเดือนนี้</td></tr>'; var pm=$('peopleModal'); if(!pm)return; pm.innerHTML='<div class="v13-modal"><h3>รายชื่อเข้างาน — '+esc(proj.name)+' <small>('+month+')</small></h3><table class="fp-table"><thead><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>วันเข้างาน</th></tr></thead><tbody>'+body+'</tbody></table><div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button onclick="gotoFinanceProject(\''+id+'\',\''+month+'\')">ดูการเงินของโครงการนี้ →</button><button onclick="closePeople()">ปิด</button></div></div>'; pm.classList.remove('hide'); }
+
+function closePeople(){ var pm=$('peopleModal'); if(pm)pm.classList.add('hide'); }
+
+function gotoFinanceProject(id,month){ closePeople(); try{ if(typeof tab==='function')tab('m'); }catch(e){} renderFinanceByProject(month,id); }
+
+function injectV13UI(){ var cam=document.getElementById('cam'); if(cam&&!document.getElementById('scanRing')){ cam.insertAdjacentHTML('beforeend','<svg id="scanRing" viewBox="0 0 120 120"><circle class="trk" cx="60" cy="60" r="54"></circle><circle class="bar" cx="60" cy="60" r="54" stroke-dasharray="339.29" stroke-dashoffset="339.29"></circle></svg><div id="scanMsg">เล็งใบหน้าให้อยู่ในวง</div>'); } var vp=document.getElementById('v-p'); if(vp&&!document.getElementById('v13-mgmt')){ var box=document.createElement('div'); box.className='v13-mgmt'; box.id='v13-mgmt'; box.innerHTML='<h3>จัดการโครงการ</h3><div id="np-bar" class="hide"><input id="np-name" placeholder="ชื่อโครงการใหม่"><input id="np-code" placeholder="รหัส (ไม่บังคับ)" style="max-width:130px"><button onclick="addProject()">+ เพิ่มโครงการ</button></div><div id="v13ProjList"></div>'; var head=vp.querySelector('.head'); if(head&&head.parentNode)head.parentNode.insertBefore(box,head.nextSibling); else vp.insertBefore(box,vp.firstChild); } var vm=document.getElementById('v-m'); if(vm&&!document.getElementById('finByProj')){ var b2=document.createElement('div'); b2.innerHTML='<div style="display:flex;gap:8px;align-items:center;margin:8px 0"><label>เดือน</label><input type="month" id="mpmonth" onchange="renderFinanceByProject(this.value)"></div><div id="finByProj"></div>'; vm.appendChild(b2); } if(!document.getElementById('peopleModal')){ var pm=document.createElement('div'); pm.id='peopleModal'; pm.className='v13-overlay hide'; document.body.appendChild(pm); } }
+
+function v13Render(){ var pl=document.getElementById('v13ProjList'); if(pl){ var admin=isAdmin(); var nb=document.getElementById('np-bar'); if(nb)nb.classList.toggle('hide',!admin); var h=''; for(var i=0;i<PROJ.length;i++){var p=PROJ[i]; h+='<div class="v13-prow"><b>'+esc(p.name)+'</b> <span class="pill">'+esc(p.code||p.id)+'</span> <span style="opacity:.6">'+(p.kind==='overhead'?'Back office':'โครงการ')+'</span> <span style="flex:1"></span><button onclick="openProjectPeople(\''+p.id+'\')">รายชื่อเข้างาน</button>'+(admin?('<button onclick="if(window.openMap)openMap(\''+p.id+'\')">พิกัด</button><button onclick="renameProject(\''+p.id+'\')">แก้ชื่อ</button><button onclick="delProject(\''+p.id+'\')">ลบ</button>'):'')+'</div>';} pl.innerHTML=h||'<p style="opacity:.6">ยังไม่มีโครงการ</p>'; } try{renderFinanceByProject();}catch(e){} }
+
+function v13Init(){ try{injectV13UI();}catch(e){console.error(e);} try{v13Render();}catch(e){console.error(e);} }
+
+window.resetScan=resetScan;window.addProject=addProject;window.renameProject=renameProject;window.delProject=delProject;window.renderFinanceByProject=renderFinanceByProject;window.openProjectPeople=openProjectPeople;window.closePeople=closePeople;window.gotoFinanceProject=gotoFinanceProject;
+try{var _v13oa=all;all=function(){var r=_v13oa.apply(this,arguments);try{v13Render();}catch(e){}return r;};}catch(e){}
+try{var _v13om=money;money=function(){var r=_v13om.apply(this,arguments);try{renderFinanceByProject();}catch(e){}return r;};}catch(e){}
+if(document.readyState!=='loading'){try{v13Init();}catch(e){console.error(e);}}else{document.addEventListener('DOMContentLoaded',function(){try{v13Init();}catch(e){console.error(e);}});}
+
 </script>
 </body>
 </html>
