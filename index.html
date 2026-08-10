@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>SEUS — ลงเวลาด้วยใบหน้า</title>
+<title>SEUS — เช็คชื่อลงเวลา (โหมดง่าย)</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -197,7 +197,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
 </div>
 
 <div class="hero">
-  <div><h1>ลงเวลาด้วยใบหน้า</h1><div class="sub">SEUS Engineering Co., Ltd.</div></div>
+  <div><h1>เช็คชื่อลงเวลา (โหมดง่าย)</h1><div class="sub">SEUS Engineering Co., Ltd.</div></div>
   <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <div class="cloud" id="cloud">● กำลังเชื่อมต่อ…</div>
     <button class="btn hide" id="outbtn" onclick="doLogout()" style="background:rgba(255,255,255,.22);color:#fff;box-shadow:none">ออกจากระบบ</button>
@@ -2213,7 +2213,7 @@ try{ boot(); }
 catch(e){ showErr('boot ล้มเหลว: '+e.message); }
 
 
-/* ===== HR-SEUS v13 add-on (auto-merged) ===== */
+/* ===== HR-SEUS v13/v14/v15 (auto-merged) ===== */
 var FACE={DET_SCORE:0.20,MIN_FACE_RATIO:0.16,MAX_OFFCENTER:0.30,MIN_QSCORE:0.45,MATCH_DIST:0.50,MATCH_MARGIN:0.06,VOTE_FRAMES:4,SCAN_MS:5000};
 var RING_C=339.29,_voteCode=null,_voteN=0,_scanT0=0,_locked=false;
 
@@ -2286,6 +2286,22 @@ function v14Init(){ try{injectV14UI();}catch(e){console.error('v14',e);} }
 window.v14SetMethod=v14SetMethod; window.v14SelfChange=v14SelfChange; window.v14Selfie=v14Selfie; window.v14RollcallSubmit=v14RollcallSubmit;
 if(document.readyState!=='loading'){ try{v14Init();}catch(e){console.error(e);} } else { document.addEventListener('DOMContentLoaded',function(){try{v14Init();}catch(e){console.error(e);}}); }
 
+
+
+
+/* ===== HR-SEUS v15: โหมดง่าย — เลือกโครงการ + เช็คชื่อ (ไม่สแกนหน้า · ไม่เช็คพิกัด) ===== */
+try{ window.detectProject=function(){}; }catch(e){}
+function v15FillProj(){ var sel=document.getElementById('v15proj'); if(!sel)return; var cur=sel.value; sel.innerHTML=PROJ.slice().sort(function(a,b){return (a.kind==='overhead'?1:0)-(b.kind==='overhead'?1:0);}).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join(''); if(cur)sel.value=cur; }
+function v15FillList(){ var box=document.getElementById('v15list'); if(!box)return; var chk={}; [].slice.call(box.querySelectorAll('.v15c:checked')).forEach(function(x){chk[x.value]=1;}); var emps=EMP.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');}); box.innerHTML=emps.map(function(e){return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06)"><input type="checkbox" class="v15c" value="'+e.code+'"'+(chk[e.code]?' checked':'')+'><span style="flex:1">'+esc(e.name||e.code)+'</span><span style="opacity:.55;font-size:12px">'+esc(e.pos||'')+'</span></label>';}).join('')||'<p style="opacity:.6">ยังไม่มีชื่อคนงาน — เพิ่มด้านบน</p>'; }
+async function v15AddWorker(){ var ni=document.getElementById('v15newname'), pi=document.getElementById('v15newpos'); var name=(ni.value||'').trim(); if(!name){alert('ใส่ชื่อคนงานก่อน');return;} var pos=(pi.value||'').trim()||'—'; var dup=EMP.find(function(e){return (e.name||'').trim()===name;}); if(dup && !confirm('มีชื่อ "'+name+'" อยู่แล้ว เพิ่มซ้ำหรือไม่?'))return; var code='W'+Date.now().toString(36).toUpperCase(); try{ await setDoc(doc(db,'employees',code),{code:code,name:name,pos:pos,cls:'direct',exempt:false,face:null,createdAt:serverTimestamp()}); ni.value=''; pi.value=''; try{toast('ok','เพิ่ม '+name+' แล้ว');}catch(e){} v15FillList(); }catch(err){ alert('เพิ่มไม่สำเร็จ: '+((err&&err.message)||err)); } }
+async function v15Write(e,type,proj){ var now=new Date(); await addDoc(collection(db,'punches'),{ code:e.code, name:e.name, type:type, date:dstr(now), time:tstr(now), min:now.getHours()*60+now.getMinutes(), projectId:proj.id, projectName:proj.name, lat:null, lng:null, acc:null, distanceM:null, insideGeofence:null, declared:true, method:'checkname', selfie:null, ts:serverTimestamp(), by:uid }); }
+async function v15Submit(type){ var sel=document.getElementById('v15proj'); var pid=sel?sel.value:''; var proj=PROJ.find(function(p){return p.id===pid;}); if(!proj){alert('เลือกโครงการก่อน');return;} var checked=[].slice.call(document.querySelectorAll('.v15c:checked')).map(function(x){return x.value;}); if(!checked.length){alert('ยังไม่ได้เลือกชื่อ');return;} if(!confirm('ยืนยัน'+(type==='in'?'เข้างาน':'ออกงาน')+' '+checked.length+' คน · '+proj.name+' ?'))return; var n=0; for(var i=0;i<checked.length;i++){ var e=EMP.find(function(x){return x.code===checked[i];}); if(e){ try{ await v15Write(e,type,proj); n++; }catch(err){} } } try{toast('ok','เช็คชื่อ '+(type==='in'?'เข้างาน':'ออกงาน')+' '+n+' คน · '+proj.name);}catch(e){} [].slice.call(document.querySelectorAll('.v15c:checked')).forEach(function(x){x.checked=false;}); }
+function v15HideOld(){ ['v14bar','cam','v14self','v14roll','autoproj','fallback'].forEach(function(id){var el=document.getElementById(id); if(el)el.style.display='none';}); var cib=document.querySelector('#v-c .cibtns'); if(cib)cib.style.display='none'; var inbox=document.querySelector('#v-c .in'); if(inbox){ [].slice.call(inbox.querySelectorAll('button')).forEach(function(b){ var oc=b.getAttribute('onclick')||''; if(oc.indexOf('detectProject')>=0||oc.indexOf('startCam')>=0)b.style.display='none'; }); } var desc=document.querySelector('#v-c .head p'); if(desc)desc.textContent='เลือกโครงการ → เช็คชื่อคนที่มาวันนี้ → กดเข้างาน/ออกงาน'; }
+function injectV15UI(){ var inbox=document.querySelector('#v-c .in'); if(!inbox||document.getElementById('v15'))return; var box=document.createElement('div'); box.id='v15'; box.innerHTML='<label class="fl">โครงการ</label><select id="v15proj"></select><div style="margin:10px 0;padding:10px;border:1px dashed rgba(0,0,0,.25);border-radius:8px"><label class="fl">เพิ่มชื่อคนงาน</label><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="v15newname" placeholder="ชื่อ-นามสกุล" style="flex:1;min-width:150px"><input id="v15newpos" placeholder="ตำแหน่ง (ไม่บังคับ)" style="flex:1;min-width:120px"><button type="button" class="btn" onclick="v15AddWorker()">+ เพิ่ม</button></div></div><label class="fl">เช็คชื่อคนที่มาวันนี้</label><div id="v15list" style="max-height:320px;overflow:auto;border:1px solid rgba(0,0,0,.12);border-radius:8px;padding:8px"></div><div style="display:flex;gap:8px;margin-top:10px"><button type="button" class="cibtn i" style="flex:1;min-height:46px" onclick="v15Submit(\'in\')">เข้างาน (ที่เลือก)</button><button type="button" class="cibtn o" style="flex:1;min-height:46px" onclick="v15Submit(\'out\')">ออกงาน (ที่เลือก)</button></div>'; inbox.insertBefore(box, inbox.firstChild); v15HideOld(); v15FillProj(); v15FillList(); }
+function v15Init(){ try{injectV15UI();}catch(e){console.error('v15',e);} }
+window.v15AddWorker=v15AddWorker; window.v15Submit=v15Submit;
+try{ var _v15oa=all; all=function(){ var r=_v15oa.apply(this,arguments); try{ if(document.getElementById('v15')){ v15FillProj(); v15FillList(); } }catch(e){} return r; }; }catch(e){}
+if(document.readyState!=='loading'){ try{v15Init();}catch(e){console.error(e);} } else { document.addEventListener('DOMContentLoaded',function(){try{v15Init();}catch(e){console.error(e);}}); }
 
 </script>
 </body>
