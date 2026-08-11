@@ -2479,6 +2479,72 @@ try{ var _v18oa=all; all=function(){ var r=_v18oa.apply(this,arguments); try{ if
 try{ setInterval(function(){ try{v18ApplyPerms();}catch(e){} }, 4000); }catch(e){}
 if(document.readyState!=='loading'){ try{v18Init();}catch(e){console.error(e);} } else { document.addEventListener('DOMContentLoaded',function(){try{v18Init();}catch(e){console.error(e);}}); }
 
+
+
+/* ═══════════════ HR-SEUS v19: Overview + Gantt/ไทม์ไลน์ + จัดรูปแบบรายชื่อ ═══════════════ */
+try{ document.head.insertAdjacentHTML('beforeend','<style>'+
+ '#v18-over .v19wrap{display:flex;flex-direction:column;gap:16px}'+
+ '.v19card{background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);padding:16px 18px}'+
+ '.v19card>h3{margin:0 0 12px;font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}'+
+ '.v19g{display:inline-block;min-width:100%;border:1px solid #eef;border-radius:10px;overflow:hidden}'+
+ '.v19g-row{display:flex}'+
+ '.v19g-row:nth-child(even) .v19g-name{background:#fbfbfe}'+
+ '.v19g-name{flex:0 0 160px;padding:0 10px;font-size:13px;display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:sticky;left:0;background:#fff;border-right:1px solid #eef;height:34px}'+
+ '.v19g-cell{flex:0 0 42px;height:34px;display:flex;align-items:center;justify-content:center;font-size:12px;border-left:1px solid #f4f4f8;border-top:1px solid #f4f4f8}'+
+ '.v19g-head .v19g-name{font-weight:600;background:#f3f3fb;color:#555}'+
+ '.v19g-dh{font-weight:600;background:#f3f3fb;color:#666;flex-direction:column;line-height:1.1}'+
+ '.v19g-dh small{font-size:9px;color:#aaa;font-weight:400}'+
+ '.v19grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}'+
+ '.v19p{border:1px solid #eef;border-radius:12px;overflow:hidden;background:#fff}'+
+ '.v19p-h{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;background:linear-gradient(0deg,#f7f7ff,#fff);border-bottom:1px solid #eef}'+
+ '.v19p-h b{font-size:14px}'+
+ '.v19p-cnt{background:#4f46e5;color:#fff;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600}'+
+ '.v19p-plan{color:#888;font-size:11px;padding:6px 14px;background:#fcfcff;border-bottom:1px dashed #eee}'+
+ '.v19row{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f5f5f9}'+
+ '.v19row:last-child{border-bottom:none}'+
+ '.v19av{flex:0 0 30px;height:30px;border-radius:50%;background:#eef;color:#4338ca;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}'+
+ '.v19nm{flex:1;font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+ '.v19row select{font-size:12px;max-width:120px}'+
+ '.v19empty{padding:14px;color:#aaa;font-size:12px;text-align:center}'+
+ '</style>'); }catch(e){}
+
+function v19DaysList(kind){ var maxN=(kind==='day')?1:(kind==='week')?7:(kind==='month')?31:14; var out=[]; var base=new Date(); for(var i=maxN-1;i>=0;i--){ var dd=new Date(base); dd.setDate(dd.getDate()-i); out.push(dstr(dd)); } return out; }
+function v19CountProjDay(projId,date){ var s={}; for(var i=0;i<PUNCH.length;i++){ var p=PUNCH[i]; if(p.projectId===projId && p.type==='in' && p.date===date) s[p.code]=1; } return Object.keys(s).length; }
+function v19Initials(name){ name=(name||'').trim(); if(!name)return '?'; var parts=name.split(/\s+/); if(parts.length>=2) return (parts[0].charAt(0)+parts[1].charAt(0)); return name.slice(0,2); }
+
+v18RenderOver=function(){
+  var box=document.getElementById('v18over-body'); if(!box)return;
+  var kind=(typeof v18CurKind==='function')?v18CurKind():'day';
+  var days=v19DaysList(kind);
+
+  // โครงการที่มีความเคลื่อนไหว (จริง+แผน)
+  var act={}; for(var i=0;i<PUNCH.length;i++){ var p=PUNCH[i]; if(p.type==='in'&&p.projectId&&days.indexOf(p.date)>=0) act[p.projectId]=1; }
+  V18_PLANS.forEach(function(p){ if(p.projectId) act[p.projectId]=1; });
+  var projList=PROJ.filter(function(p){return act[p.id];});
+  if(!projList.length) projList=PROJ.filter(function(p){return p.kind==='project';});
+
+  // ── Gantt / ไทม์ไลน์ ──
+  var maxc=1; projList.forEach(function(pr){ days.forEach(function(dt){ var c=v19CountProjDay(pr.id,dt); if(c>maxc)maxc=c; }); });
+  var head='<div class="v19g-row v19g-head"><div class="v19g-name">โครงการ</div>'+days.map(function(dt){ var d=new Date(dt); var dn=['อา','จ','อ','พ','พฤ','ศ','ส'][d.getDay()]; return '<div class="v19g-cell v19g-dh">'+(d.getDate())+'<small>'+dn+'</small></div>'; }).join('')+'</div>';
+  var grows=projList.map(function(pr){ return '<div class="v19g-row"><div class="v19g-name" title="'+esc(pr.name)+'">'+esc(pr.name)+'</div>'+days.map(function(dt){ var c=v19CountProjDay(pr.id,dt); var op=c?(0.15+0.85*(c/maxc)):0; return '<div class="v19g-cell" style="background:'+(c?('rgba(79,70,229,'+op.toFixed(2)+')'):'#f7f7fa')+';color:'+(op>0.55?'#fff':'#555')+'">'+(c||'')+'</div>'; }).join('')+'</div>'; }).join('');
+  var gantt='<div class="v19card"><h3>ตารางกำลังพล — ไทม์ไลน์</h3><div style="overflow:auto"><div class="v19g">'+head+grows+'</div></div><div style="font-size:11px;color:#999;margin-top:8px">ตัวเลข = จำนวนคนลงเวลาเข้างานต่อวัน · สีเข้ม = คนมาก</div></div>';
+
+  // ── รายชื่อกำลังพลอยู่จริงตอนนี้ (การ์ดสวยงาม) ──
+  var g=v18OpenByProject(); var wk=v18PlanKeyWeek(); var planByProj={};
+  V18_PLANS.filter(function(p){return p.period==='week'&&p.key===wk;}).forEach(function(p){ (planByProj[p.projectId]=planByProj[p.projectId]||[]).push(p); });
+  var totalIn=0; Object.keys(g).forEach(function(k){totalIn+=g[k].length;});
+  var cards=PROJ.map(function(pr){ var here=g[pr.id]||[]; var plan=planByProj[pr.id]||[]; if(!here.length&&!plan.length) return '';
+    var rows=here.length? here.map(function(p){ var e=EMP.find(function(x){return x.code===p.code;})||{}; return '<div class="v19row"><div class="v19av">'+esc(v19Initials(p.name))+'</div><div class="v19nm" title="'+esc(p.name)+'">'+esc(p.name)+(e.pos?('<div style="font-size:11px;color:#999">'+esc(e.pos)+'</div>'):'')+'</div><select onchange="v18MoveName(\''+p.code+'\',this.value)">'+v18ProjOptions(pr.id)+'</select></div>'; }).join('') : '<div class="v19empty">ยังไม่มีใครเข้างาน</div>';
+    var planLine=plan.length?('<div class="v19p-plan">ตามแผน '+plan.length+' คน: '+plan.map(function(p){return esc(p.name);}).join(', ')+'</div>'):'';
+    return '<div class="v19p"><div class="v19p-h"><b>'+esc(pr.name)+'</b><span class="v19p-cnt">'+here.length+' คน</span></div>'+planLine+rows+'</div>'; }).join('');
+  var kpiEl=document.getElementById('v18over-kpi'); if(kpiEl)kpiEl.textContent='กำลังพลอยู่จริงตอนนี้ '+totalIn+' คน · '+dstr(new Date());
+
+  box.innerHTML='<div class="v19wrap">'+gantt+'<div class="v19card"><h3>รายชื่อกำลังพลรายโครงการ</h3><div class="v19grid">'+(cards||'<p class="v19empty">ยังไม่มีใครเข้างานวันนี้</p>')+'</div></div></div>';
+};
+
+/* ให้ปุ่มเลือกช่วงวันรีเฟรช Gantt ด้วย */
+try{ document.addEventListener('change', function(e){ if(e.target && e.target.id==='v18range'){ try{v18RenderOver();}catch(_){}} }); }catch(e){}
+
 </script>
 </body>
 </html>
