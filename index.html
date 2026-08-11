@@ -2545,6 +2545,35 @@ v18RenderOver=function(){
 /* ให้ปุ่มเลือกช่วงวันรีเฟรช Gantt ด้วย */
 try{ document.addEventListener('change', function(e){ if(e.target && e.target.id==='v18range'){ try{v18RenderOver();}catch(_){}} }); }catch(e){}
 
+
+
+/* ═══════════════ HR-SEUS v20: ออกงานกรองตามโครงการ + เลือกทั้งหมด/ยกเลิก ═══════════════ */
+function v20OpenProj(code){ var t=dstr(new Date()); var arr=PUNCH.filter(function(p){return p.code===code && p.date===t;}).sort(function(a,b){return a.min-b.min;}); if(!arr.length)return null; var lp=arr[arr.length-1]; return lp.type==='in'?(lp.projectId||null):null; }
+
+v16FillList=function(){
+  var box=document.getElementById('v16list'); if(!box)return;
+  var chk={}; [].slice.call(box.querySelectorAll('.v16c:checked')).forEach(function(x){chk[x.value]=1;});
+  var pid=(document.getElementById('v16proj')||{}).value||'';
+  var emps=EMP.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');});
+  var rows=emps.filter(function(e){ if(!v16Eligible(e.code,v16Action))return false; if(v16Action==='out'&&pid){ return v20OpenProj(e.code)===pid; } return true; });
+  box.innerHTML=rows.map(function(e){ var s=v16Status(e.code); var badge='';
+    if(v16Action==='out'){ var op=v20OpenProj(e.code); var pr=PROJ.find(function(p){return p.id===op;}); badge='<span style="color:#2e9e5b;font-size:12px">เข้า '+(s.inTime||'')+(pr?(' · '+esc(pr.name)):'')+'</span>'; }
+    else if(s.hasIn){ badge='<span style="color:#2e9e5b;font-size:12px">เข้า '+s.inTime+'</span>'; }
+    return '<label style="display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid rgba(0,0,0,.06)"><input type="checkbox" class="v16c" value="'+e.code+'"'+(chk[e.code]?' checked':'')+'><span style="flex:1">'+esc(e.name||e.code)+'</span>'+badge+'<span style="opacity:.5;font-size:12px">'+esc(e.pos||'')+'</span></label>';
+  }).join('')||'<p style="opacity:.6;padding:8px">ไม่มีชื่อที่ต้อง'+(v16Action==='in'?'เข้างาน':'ออกงาน')+((v16Action==='out'&&pid)?' ในโครงการนี้':'')+' แล้ว</p>';
+  var c=document.getElementById('v16count'); if(c)c.textContent='แสดง '+rows.length+' คน';
+};
+
+window.v20SelectAll=function(on){ [].slice.call(document.querySelectorAll('#v16list .v16c')).forEach(function(x){x.checked=on;}); };
+
+function v20Init(){ var list=document.getElementById('v16list'); if(list && !document.getElementById('v20selbar')){ var bar=document.createElement('div'); bar.id='v20selbar'; bar.style.cssText='display:flex;gap:8px;margin:4px 0'; bar.innerHTML='<button type="button" class="btn" style="padding:7px 14px;font-size:13px" onclick="v20SelectAll(true)">เลือกทั้งหมด</button><button type="button" class="btn" style="padding:7px 14px;font-size:13px" onclick="v20SelectAll(false)">ยกเลิก</button>'; list.parentNode.insertBefore(bar,list); } try{ if(typeof v16FillList==='function')v16FillList(); }catch(e){} }
+
+/* เปลี่ยนโครงการในโหมดออกงาน → กรองรายชื่อใหม่ */
+try{ document.addEventListener('change', function(e){ if(e.target && e.target.id==='v16proj'){ try{v16FillList();}catch(_){}} }); }catch(e){}
+/* ให้บาร์ปุ่มโผล่แน่นอน */
+try{ setInterval(function(){ try{ if(document.getElementById('v16list')&&!document.getElementById('v20selbar'))v20Init(); }catch(e){} }, 2000); }catch(e){}
+if(document.readyState!=='loading'){ try{v20Init();}catch(e){} } else { document.addEventListener('DOMContentLoaded',function(){try{v20Init();}catch(e){}}); }
+
 </script>
 </body>
 </html>
