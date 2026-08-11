@@ -475,6 +475,7 @@ select.need,input.need{border-color:var(--rose);background:#FFF7F7}
         <option value="supervisor">supervisor — ทะเบียน + โครงการ</option>
         <option value="hr">hr — ดูข้อมูลการเงิน (อ่านอย่างเดียว)</option>
         <option value="accountant">accountant — แก้ไขการเงิน + ออกสลิป</option>
+        <option value="kiosk">kiosk — เครื่องลงเวลารวม (เลือกโครงการ+ลงชื่อ)</option>
       </select>
       <button class="btn go" style="width:100%;margin-top:12px" onclick="setRole()">บันทึกสิทธิ์</button>
       <div class="toast" id="utoast"></div>
@@ -766,6 +767,7 @@ function boot(){
     $('t-s').classList.toggle('hide', !canSeeMoney());
     $('t-u').classList.toggle('hide', !isAdmin());
     $('t-n').classList.toggle('hide', !isAdmin());
+    try{ if(window.v18ApplyPerms) v18ApplyPerms(); }catch(e){}
     if($('pmonth')) $('pmonth').value = dstr(new Date()).slice(0,7);
 
     listen();
@@ -2321,9 +2323,9 @@ function injectV16UI(){ var inbox=document.querySelector('#v-c .in'); if(!inbox|
   '<div id="v16banner"></div>'+
   '<label class="fl">โครงการ</label><select id="v16proj"></select>'+
   '<div style="display:flex;gap:8px;margin:10px 0"><button type="button" class="v16seg" data-a="in" onclick="v16SetAction(\'in\')">เข้างาน</button><button type="button" class="v16seg" data-a="out" onclick="v16SetAction(\'out\')">ออกงาน</button></div>'+
-  '<label style="display:flex;gap:8px;align-items:center;font-size:14px;margin:6px 0"><input type="checkbox" id="v16back" onchange="v16ToggleBack()"> แก้ไขเวลาย้อนหลัง</label>'+
+  '<label id="v16backrow" style="display:flex;gap:8px;align-items:center;font-size:14px;margin:6px 0"><input type="checkbox" id="v16back" onchange="v16ToggleBack()"> แก้ไขเวลาย้อนหลัง</label>'+
   '<div id="v16backwrap" style="display:none;gap:8px;margin-bottom:8px"><input type="date" id="v16date" style="flex:1"> <input type="time" id="v16time" style="flex:1"></div>'+
-  '<div style="margin:8px 0;padding:10px;border:1px dashed rgba(0,0,0,.25);border-radius:8px"><label class="fl">เพิ่มชื่อคนงาน</label><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="v16newname" placeholder="ชื่อ-นามสกุล" style="flex:1;min-width:150px"><input id="v16newpos" placeholder="ตำแหน่ง (ไม่บังคับ)" style="flex:1;min-width:120px"><button type="button" class="btn" onclick="v16AddWorker()">+ เพิ่ม</button></div></div>'+
+  '<div id="v16addbox" style="margin:8px 0;padding:10px;border:1px dashed rgba(0,0,0,.25);border-radius:8px"><label class="fl">เพิ่มชื่อคนงาน</label><div style="display:flex;gap:6px;flex-wrap:wrap"><input id="v16newname" placeholder="ชื่อ-นามสกุล" style="flex:1;min-width:150px"><input id="v16newpos" placeholder="ตำแหน่ง (ไม่บังคับ)" style="flex:1;min-width:120px"><button type="button" class="btn" onclick="v16AddWorker()">+ เพิ่ม</button></div></div>'+
   '<div style="display:flex;justify-content:space-between;align-items:center"><label class="fl">เช็คชื่อ</label><span id="v16count" style="font-size:12px;opacity:.6"></span></div>'+
   '<div id="v16list" style="max-height:340px;overflow:auto;border:1px solid rgba(0,0,0,.12);border-radius:8px;padding:8px"></div>'+
   '<button type="button" class="cibtn i" style="width:100%;margin-top:10px" onclick="v16Submit()">บันทึก (ที่เลือก)</button>';
@@ -2367,6 +2369,115 @@ window.v17Leave=function(code){ var e=EMP.find(function(x){return x.code===code;
  m.classList.remove('hide'); };
 window.v17SaveLeave=v17SaveLeave; window.v17Close=v17Close;
 try{ onSnapshot(collection(db,'leaves'), function(s){ V17_LEAVES=s.docs.map(function(d){return d.data();}); try{ if(typeof board==='function') board(); }catch(e){} }); }catch(e){}
+
+
+
+/* ═══════════════ HR-SEUS v18: Overview / Kiosk / Report / Planning ═══════════════ */
+var V18_ALERT_RCPT=[], V18_PLAN_RCPT=[], V18_PLANS=[], V18_UNDO=null, V18_KIOSK_TABS=['c'];
+function v18Today(){ return dstr(new Date()); }
+function v18AdminList(){ return (typeof ADMINS!=='undefined'&&ADMINS.length)?ADMINS.slice():['arthapol.yindee.ay@gmail.com']; }
+function v18AlertTo(){ return (V18_ALERT_RCPT&&V18_ALERT_RCPT.length)?V18_ALERT_RCPT:v18AdminList(); }
+function v18PlanTo(){ return (V18_PLAN_RCPT&&V18_PLAN_RCPT.length)?V18_PLAN_RCPT:v18AdminList(); }
+
+/* ── snapshots: settings + plans ── */
+try{ onSnapshot(doc(db,'settings','alertRecipients'), function(s){ V18_ALERT_RCPT=(s.exists()&&s.data().emails)||[]; }); }catch(e){}
+try{ onSnapshot(doc(db,'settings','planRecipients'),  function(s){ V18_PLAN_RCPT=(s.exists()&&s.data().emails)||[]; }); }catch(e){}
+try{ onSnapshot(collection(db,'plans'), function(s){ V18_PLANS=s.docs.map(function(d){return d.data();}); try{ if($('v18-plan')&&!$('v18-plan').classList.contains('hide'))v18RenderPlan(); if($('v18-over')&&!$('v18-over').classList.contains('hide'))v18RenderOver(); }catch(e){} }); }catch(e){}
+
+/* ── UNDO (ย้อนการแก้ไขล่าสุด) ── */
+function v18SetUndo(label, revert){ V18_UNDO={label:label, revert:revert}; var b=document.getElementById('v18undo'); if(b){ b.style.display=''; b.textContent='↶ ย้อน: '+label; } }
+window.v18Undo=async function(){ if(!V18_UNDO)return; var u=V18_UNDO; V18_UNDO=null; var b=document.getElementById('v18undo'); if(b)b.style.display='none'; try{ await u.revert(); try{toast('ok','ย้อนกลับแล้ว: '+u.label);}catch(e){} }catch(err){ alert('ย้อนไม่สำเร็จ: '+((err&&err.message)||err)); } };
+
+/* ═══ #2 + #3 helper: การลงเวลาวันนี้ + เปลี่ยนโครงการ ═══ */
+function v18TodayPunches(code){ var t=v18Today(); return PUNCH.filter(function(p){return p.code===code && p.date===t;}).sort(function(a,b){return a.min-b.min;}); }
+function v18LastPunch(code){ var a=v18TodayPunches(code); return a.length?a[a.length-1]:null; }
+async function v18ChangeProject(punch, newId){ var np=PROJ.find(function(p){return p.id===newId;}); if(!np||!punch.id)return; var oldId=punch.projectId, oldName=punch.projectName; await setDoc(doc(db,'punches',punch.id), {projectId:np.id, projectName:np.name}, {merge:true}); v18SetUndo('เปลี่ยนโครงการ '+(punch.name||'')+' → '+np.name, async function(){ await setDoc(doc(db,'punches',punch.id), {projectId:oldId, projectName:oldName}, {merge:true}); }); try{toast('ok','ย้าย '+(punch.name||'')+' ไป '+np.name);}catch(e){} }
+function v18ProjOptions(sel){ return PROJ.slice().sort(function(a,b){return (a.kind==='overhead'?1:0)-(b.kind==='overhead'?1:0);}).map(function(p){return '<option value="'+p.id+'"'+(p.id===sel?' selected':'')+'>'+esc(p.name)+'</option>';}).join(''); }
+
+/* ═══ #2: แทน v17Leave — เพิ่มโครงการวันนี้ + เปลี่ยนโครงการ (แอดมิน) ═══ */
+window.v17Leave=function(code){ var e=EMP.find(function(x){return x.code===code;}); if(!e)return; var t=v18Today(); var cur=v17LeaveOf(code,t); var stats=v17Stats(code); var last=v18LastPunch(code);
+ var m=document.getElementById('v17modal'); if(!m){ m=document.createElement('div'); m.id='v17modal'; m.className='v13-overlay hide'; document.body.appendChild(m); }
+ var projBlock='';
+ if(last){ var openTxt=(last.type==='in'?'เข้างานอยู่':'ออกงานแล้ว'); projBlock='<div style="margin:8px 0;padding:10px;border:1px solid rgba(0,0,0,.12);border-radius:8px"><div style="font-size:12px;color:#666">วันนี้: '+openTxt+' · '+esc(last.projectName||'-')+' · '+last.time+'</div>'+(isAdmin()?('<div style="margin-top:6px;display:flex;gap:6px;align-items:center"><span style="font-size:12px">ย้ายโครงการ:</span><select id="v18chproj">'+v18ProjOptions(last.projectId)+'</select><button type="button" onclick="v18DoChange(\''+code+'\')">ย้าย</button></div>'):'')+'</div>'; }
+ else { projBlock='<div style="margin:8px 0;font-size:12px;color:#999">วันนี้ยังไม่มีการลงเวลา</div>'; }
+ var opts=V17_LEAVE_TYPES.map(function(o){ var on=cur?(cur.type===o.v):(o.v==='present'); return '<button type="button" onclick="v18SetLeave(\''+code+'\',\''+o.v+'\')" style="display:block;width:100%;text-align:left;margin:4px 0;padding:11px 12px;border:1px solid '+(on?'#3377cc':'rgba(0,0,0,.15)')+';border-radius:8px;background:'+(on?'#eef4fe':'#fff')+';cursor:pointer;min-height:44px">'+esc(o.l)+(o.legal?'<div style="font-size:11px;color:#666">'+esc(o.legal)+'</div>':'')+'</button>'; }).join('');
+ var statRows=V17_LEAVE_TYPES.filter(function(o){return o.v!=='present'&&o.v!=='other';}).map(function(o){ return '<tr><td>'+esc(o.l)+'</td><td style="text-align:right">'+(stats[o.v]||0)+' วัน</td></tr>'; }).join('');
+ m.innerHTML='<div class="v13-modal"><h3>'+esc(e.name)+'</h3><div style="font-size:12px;color:#666">วันที่ '+t+(cur?(' · ลา: '+esc(v17TypeLabel(cur.type))):'')+'</div>'+projBlock+'<h4 style="margin:12px 0 4px">ขาด / ลา</h4>'+opts+'<input id="v17note" placeholder="หมายเหตุ (ไม่บังคับ)" style="width:100%;margin-top:6px" value="'+(cur?esc(cur.note||''):'')+'"><h4 style="margin:14px 0 6px">สถิติการลาปี '+((new Date()).getFullYear())+'</h4><table class="fp-table"><tbody>'+statRows+'</tbody></table><div style="margin-top:12px;text-align:right"><button type="button" onclick="v17Close()">ปิด</button></div></div>';
+ m.classList.remove('hide'); };
+window.v18DoChange=async function(code){ var sel=document.getElementById('v18chproj'); if(!sel)return; var last=v18LastPunch(code); if(!last){alert('วันนี้ยังไม่มีการลงเวลา');return;} await v18ChangeProject(last, sel.value); v17Close(); };
+window.v18SetLeave=async function(code,type){ var e=EMP.find(function(x){return x.code===code;}); if(!e)return; var t=v18Today(); var prev=v17LeaveOf(code,t); var note=((document.getElementById('v17note')||{}).value)||''; try{ if(type==='present'){ try{ await deleteDoc(doc(db,'leaves', code+'_'+t)); }catch(_){} } else { await setDoc(doc(db,'leaves', code+'_'+t), {code:code,name:e.name,date:t,type:type,note:note,by:uid,at:serverTimestamp()}); } v18SetUndo('ลา '+(e.name||''), async function(){ if(prev){ await setDoc(doc(db,'leaves',code+'_'+t), prev); } else { try{await deleteDoc(doc(db,'leaves',code+'_'+t));}catch(_){} } }); try{toast('ok',(type==='present'?'ล้างสถานะลา':'บันทึก '+v17TypeLabel(type))+' — '+e.name);}catch(_){} v17Close(); }catch(err){ alert('บันทึกไม่สำเร็จ: '+((err&&err.message)||err)); } };
+
+/* ═══ #4: สิทธิ์ (kiosk) — seus.eng เลือกโครงการ+ลงชื่อได้อย่างเดียว ═══ */
+function v18ApplyPerms(){ var role=(typeof MYROLE!=='undefined')?MYROLE:'staff'; var kiosk=(role==='kiosk');
+ // ปุ่ม nav v18 (admin เท่านั้น)
+ var admin=(typeof isAdmin==='function')&&isAdmin();
+ var to=document.getElementById('t-o'), tpl=document.getElementById('t-pl'); if(to)to.classList.toggle('hide',!admin); if(tpl)tpl.classList.toggle('hide',!admin);
+ if(kiosk){ ['t-d','t-f','t-p','t-t','t-m','t-s','t-u','t-n','t-o','t-pl'].forEach(function(id){var b=document.getElementById(id); if(b)b.classList.add('hide');}); try{ if(typeof tab==='function') tab('c'); }catch(e){}
+   ['v16backrow','v16addbox'].forEach(function(id){var el=document.getElementById(id); if(el)el.style.display='none';}); }
+ else { ['v16backrow','v16addbox'].forEach(function(id){var el=document.getElementById(id); if(el)el.style.display='';}); }
+}
+window.v18ApplyPerms=v18ApplyPerms;
+
+/* ═══ #1 override: แจ้งเตือน 9 โมง → ส่งหาผู้รับที่ตั้งค่าได้ ═══ */
+v16Notify=async function(){ var now=new Date(); if(now.getHours()*60+now.getMinutes() < (typeof V16_CUTOFF!=='undefined'?V16_CUTOFF.h*60+V16_CUTOFF.m:540)) return; var t=v18Today(); var missing=EMP.filter(function(e){return !e.exempt && !((v16Status?v16Status(e.code).hasIn:false));}); var banner=document.getElementById('v16banner'); if(!missing.length){ if(banner)banner.style.display='none'; return; } if(banner){ banner.style.display=''; banner.textContent='⚠ ถึง 9:00 น. ยังไม่ลงเวลาเข้างาน '+missing.length+' คน — แจ้งผู้รับแล้ว'; } try{ var ref=doc(db,'absentAlerts',t); var snap=await getDoc(ref); if(!snap.exists()){ var names=missing.map(function(e){return e.name;}).join(', '); await setDoc(ref,{date:t,count:missing.length,names:names,at:serverTimestamp(),by:uid}); await addDoc(collection(db,'mail'),{ to:v18AlertTo(), message:{ subject:'SEUS แจ้งเตือน: ยังไม่ลงเวลา '+missing.length+' คน ('+t+')', text:'รายชื่อที่ยังไม่ลงเวลาเข้างานถึง 9:00 น. วันที่ '+t+':\n'+names } }); } }catch(e){} };
+
+/* ═══ #3 + #6: Overview dashboard (กำลังพล + แผน vs จริง) ═══ */
+function v18OpenByProject(){ var t=v18Today(); var last={}; PUNCH.filter(function(p){return p.date===t;}).sort(function(a,b){return a.min-b.min;}).forEach(function(p){ last[p.code]=p; }); var g={}; Object.keys(last).forEach(function(c){ var p=last[c]; if(p.type==='in'){ (g[p.projectId]=g[p.projectId]||[]).push(p); } }); return g; }
+function v18PlanKeyWeek(d){ d=d||new Date(); var dt=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); var day=dt.getUTCDay()||7; dt.setUTCDate(dt.getUTCDate()+4-day); var ys=new Date(Date.UTC(dt.getUTCFullYear(),0,1)); var wk=Math.ceil((((dt-ys)/86400000)+1)/7); return dt.getUTCFullYear()+'-W'+(wk<10?'0'+wk:wk); }
+function v18RenderOver(){ var box=document.getElementById('v18over-body'); if(!box)return; var g=v18OpenByProject(); var wk=v18PlanKeyWeek(); var planByProj={}; V18_PLANS.filter(function(p){return p.period==='week'&&p.key===wk;}).forEach(function(p){ (planByProj[p.projectId]=planByProj[p.projectId]||[]).push(p); });
+ var projs=PROJ.slice(); var totalIn=0; Object.keys(g).forEach(function(k){totalIn+=g[k].length;});
+ var cards=projs.map(function(pr){ var here=g[pr.id]||[]; var plan=planByProj[pr.id]||[]; if(!here.length&&!plan.length) return '';
+   var rows=here.map(function(p){ var e=EMP.find(function(x){return x.code===p.code;})||{}; return '<tr><td>'+esc(p.name)+'</td><td style="color:#666;font-size:12px">'+esc(e.pos||'')+'</td><td style="text-align:right"><select onchange="v18MoveName(\''+p.code+'\',this.value)">'+v18ProjOptions(pr.id)+'</select></td></tr>'; }).join('')||'<tr><td colspan="3" style="color:#999;font-size:12px">— ยังไม่มีใครเข้างาน —</td></tr>';
+   var planNames=plan.map(function(p){return esc(p.name);}).join(', ');
+   return '<div class="fp-group"><h4>'+esc(pr.name)+' <span class="pill">อยู่จริง '+here.length+' คน</span>'+(plan.length?(' <span class="pill" style="background:#eee">แผน '+plan.length+' คน</span>'):'')+'</h4>'+(plan.length?('<div style="font-size:12px;color:#888;margin-bottom:6px">ตามแผน: '+planNames+'</div>'):'')+'<table class="fp-table"><tbody>'+rows+'</tbody></table></div>'; }).join('');
+ document.getElementById('v18over-kpi').textContent='กำลังพลอยู่จริงตอนนี้ '+totalIn+' คน · '+v18Today();
+ box.innerHTML=cards||'<p style="opacity:.6">ยังไม่มีใครเข้างานวันนี้</p>'; }
+window.v18MoveName=async function(code,newId){ var last=v18LastPunch(code); if(!last){alert('คนนี้ยังไม่มีการลงเวลาวันนี้');v18RenderOver();return;} await v18ChangeProject(last,newId); v18RenderOver(); };
+
+/* ═══ #5: รายงาน Save / Print / Undo (เลือกช่วงวัน) ═══ */
+function v18RangeDates(kind){ var now=new Date(); var to=v18Today(); var from=to; if(kind==='week'){ var d=new Date(now); d.setDate(d.getDate()-6); from=dstr(d); } else if(kind==='month'){ from=to.slice(0,8)+'01'; } else if(kind==='all'){ from='0000-01-01'; } return {from:from,to:to}; }
+function v18ReportRows(kind){ var r=v18RangeDates(kind); var res=[]; EMP.forEach(function(e){ var ps=PUNCH.filter(function(p){return p.code===e.code && p.type==='in' && (p.date||'')>=r.from && (p.date||'')<=r.to;}); var days={}; var projs={}; ps.forEach(function(p){ days[p.date]=1; projs[p.projectName||p.projectId||'-']=1; }); var lv=V17_LEAVES.filter(function(x){return x.code===e.code && x.type!=='present' && (x.date||'')>=r.from && (x.date||'')<=r.to;}).length; res.push({name:e.name,pos:e.pos||'',days:Object.keys(days).length,projs:Object.keys(projs).join(', '),leaves:lv}); }); return {rows:res.sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');}), range:r}; }
+function v18ReportHTML(kind){ var d=v18ReportRows(kind); var label={day:'วันนี้',week:'7 วันล่าสุด',month:'เดือนนี้',all:'ทั้งหมด'}[kind]||kind; var body=d.rows.map(function(x,i){ return '<tr><td>'+(i+1)+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.pos)+'</td><td style="text-align:center">'+x.days+'</td><td style="text-align:center">'+x.leaves+'</td><td>'+esc(x.projs)+'</td></tr>'; }).join(''); return '<div style="font-family:system-ui;padding:24px;color:#111"><div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #333;padding-bottom:8px"><div><div style="font-size:22px;font-weight:700">SEUS — รายงานสรุปการเข้างาน</div><div style="color:#666">ช่วง: '+label+' ('+d.range.from+' ถึง '+d.range.to+')</div></div><div style="text-align:right;color:#666;font-size:12px">พิมพ์เมื่อ '+new Date().toLocaleString('th-TH')+'</div></div><table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px"><thead><tr style="background:#f2f2f2">'+['#','ชื่อ','ตำแหน่ง','วันเข้างาน','วันลา','โครงการ'].map(function(h){return '<th style="border:1px solid #ccc;padding:6px;text-align:left">'+h+'</th>';}).join('')+'</tr></thead><tbody>'+body.replace(/<td/g,'<td style="border:1px solid #ddd;padding:6px"')+'</tbody></table><div style="margin-top:10px;color:#666;font-size:12px">รวม '+d.rows.length+' คน</div></div>'; }
+function v18CurKind(){ var s=document.getElementById('v18range'); return s?s.value:'day'; }
+window.v18Print=function(){ var w=window.open('','_blank'); if(!w){alert('เบราว์เซอร์บล็อกหน้าต่างพิมพ์');return;} w.document.write('<html><head><title>SEUS Report</title></head><body>'+v18ReportHTML(v18CurKind())+'<scr'+'ipt>window.onload=function(){window.print();}</scr'+'ipt></body></html>'); w.document.close(); };
+window.v18Save=function(){ var html='<html><head><meta charset="utf-8"><title>SEUS Report</title></head><body>'+v18ReportHTML(v18CurKind())+'</body></html>'; var b=new Blob([html],{type:'text/html;charset=utf-8'}); var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download='SEUS-report-'+v18CurKind()+'-'+v18Today()+'.html'; document.body.appendChild(a); a.click(); setTimeout(function(){URL.revokeObjectURL(u);a.remove();},3000); };
+
+/* ═══ #6: โมดูลวางแผนงาน (สัปดาห์/เดือน) + ส่งอีเมล + ผู้รับ ═══ */
+function v18PlanKey(){ var per=(document.getElementById('v18planper')||{}).value||'week'; return per==='month'? v18Today().slice(0,7) : v18PlanKeyWeek(); }
+function v18RenderPlan(){ var box=document.getElementById('v18plan-body'); if(!box)return; var per=(document.getElementById('v18planper')||{}).value||'week'; var key=v18PlanKey(); var cur={}; V18_PLANS.filter(function(p){return p.period===per&&p.key===key;}).forEach(function(p){ cur[p.code]=p.projectId; });
+ var emps=EMP.filter(function(e){return !e.exempt;}).sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');});
+ box.innerHTML='<div style="font-size:12px;color:#666;margin-bottom:6px">รอบ: '+esc(key)+' — เลือกโครงการให้แต่ละคน</div>'+emps.map(function(e){ return '<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.05)"><span style="flex:1">'+esc(e.name)+'</span><select data-code="'+e.code+'" class="v18plansel"><option value="">— ไม่กำหนด —</option>'+v18ProjOptions(cur[e.code]||'')+'</select></div>'; }).join(''); }
+window.v18PlanSave=async function(){ var per=(document.getElementById('v18planper')||{}).value||'week'; var key=v18PlanKey(); var sels=[].slice.call(document.querySelectorAll('.v18plansel')); var n=0; for(var i=0;i<sels.length;i++){ var code=sels[i].getAttribute('data-code'), pid=sels[i].value; var e=EMP.find(function(x){return x.code===code;}); var id=code+'_'+per+'_'+key; if(pid){ var pr=PROJ.find(function(p){return p.id===pid;}); await setDoc(doc(db,'plans',id),{code:code,name:e?e.name:code,period:per,key:key,projectId:pid,projectName:pr?pr.name:'',by:uid,at:serverTimestamp()}); n++; } else { try{await deleteDoc(doc(db,'plans',id));}catch(_){} } } try{toast('ok','บันทึกแผน '+key+' ('+n+' คน)');}catch(e){} };
+function v18PlanText(){ var per=(document.getElementById('v18planper')||{}).value||'week'; var key=v18PlanKey(); var list=V18_PLANS.filter(function(p){return p.period===per&&p.key===key&&p.projectId;}); var byP={}; list.forEach(function(p){ (byP[p.projectName||p.projectId]=byP[p.projectName||p.projectId]||[]).push(p.name); }); var out='แผนงาน '+(per==='month'?'ประจำเดือน':'ประจำสัปดาห์')+' '+key+'\n\n'; Object.keys(byP).forEach(function(k){ out+='• '+k+' ('+byP[k].length+' คน): '+byP[k].join(', ')+'\n'; }); if(!Object.keys(byP).length)out+='(ยังไม่มีการมอบหมาย)'; return out; }
+window.v18PlanSend=async function(){ var key=v18PlanKey(); if(!confirm('ส่งแผน '+key+' ให้ผู้รับ '+v18PlanTo().length+' คน?'))return; try{ await addDoc(collection(db,'mail'),{ to:v18PlanTo(), message:{ subject:'SEUS แผนงาน '+key, text:v18PlanText() } }); toast('ok','ส่งแผนแล้ว'); }catch(e){ alert('ส่งไม่สำเร็จ: '+((e&&e.message)||e)); } };
+
+/* ── จัดการอีเมลผู้รับ (ใช้ทั้งแจ้งเตือน + แผน) ── */
+async function v18RcptAdd(which){ var inp=document.getElementById(which==='alert'?'v18ra-in':'v18rp-in'); var em=((inp||{}).value||'').trim().toLowerCase(); if(!em||em.indexOf('@')<0){alert('ใส่อีเมลให้ถูกต้อง');return;} var arr=(which==='alert'?V18_ALERT_RCPT:V18_PLAN_RCPT).slice(); if(arr.indexOf(em)<0)arr.push(em); await setDoc(doc(db,'settings',which==='alert'?'alertRecipients':'planRecipients'),{emails:arr}); if(inp)inp.value=''; }
+async function v18RcptDel(which,em){ var arr=(which==='alert'?V18_ALERT_RCPT:V18_PLAN_RCPT).filter(function(x){return x!==em;}); await setDoc(doc(db,'settings',which==='alert'?'alertRecipients':'planRecipients'),{emails:arr}); }
+window.v18RcptAdd=v18RcptAdd; window.v18RcptDel=v18RcptDel;
+function v18RcptRender(){ [['alert',V18_ALERT_RCPT,'v18ra-list'],['plan',V18_PLAN_RCPT,'v18rp-list']].forEach(function(t){ var box=document.getElementById(t[2]); if(!box)return; var arr=t[1].length?t[1]:v18AdminList(); box.innerHTML=arr.map(function(em){ return '<span style="display:inline-flex;gap:6px;align-items:center;background:#eef;border-radius:999px;padding:3px 10px;margin:3px;font-size:12px">'+esc(em)+' <b style="cursor:pointer" onclick="v18RcptDel(\''+t[0]+'\',\''+em+'\')">×</b></span>'; }).join('')||'<span style="color:#999;font-size:12px">ยังไม่ตั้ง — ใช้แอดมินเป็นค่าเริ่มต้น</span>'; }); }
+
+/* ═══ สร้าง view + nav + ปุ่ม ═══ */
+function v18InjectViews(){ var main=document.querySelector('main'); if(!main||document.getElementById('v18-over'))return;
+ var over=document.createElement('div'); over.id='v18-over'; over.className='hide';
+ over.innerHTML='<div class="head"><div><h2>ภาพรวมกำลังพล</h2><p id="v18over-kpi"></p></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><select id="v18range"><option value="day">วันนี้</option><option value="week">7 วันล่าสุด</option><option value="month">เดือนนี้</option><option value="all">ทั้งหมด</option></select><button class="btn" onclick="v18Save()">Save</button><button class="btn go" onclick="v18Print()">Print report</button><button class="btn" id="v18undo2" onclick="v18Undo()">↶ Undo</button></div></div><div id="v18over-body"></div>';
+ main.appendChild(over);
+ var plan=document.createElement('div'); plan.id='v18-plan'; plan.className='hide';
+ plan.innerHTML='<div class="head"><div><h2>วางแผนงาน</h2><p>เลือกโครงการให้แต่ละคนตามรอบ แล้วส่งให้ผู้เกี่ยวข้อง</p></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select id="v18planper" onchange="v18RenderPlan()"><option value="week">รายสัปดาห์</option><option value="month">รายเดือน</option></select><button class="btn go" onclick="v18PlanSave()">บันทึกแผน</button><button class="btn" onclick="v18PlanSend()">ส่งอีเมลแผน</button></div></div><div class="g2"><div class="panel"><h3>มอบหมายงาน</h3><div id="v18plan-body" style="max-height:420px;overflow:auto"></div></div><div class="panel"><h3>ผู้รับอีเมล</h3><div style="font-size:13px;font-weight:600;margin-top:6px">แจ้งเตือน 9 โมง</div><div id="v18ra-list"></div><div style="display:flex;gap:6px;margin:4px 0 12px"><input id="v18ra-in" placeholder="อีเมล" style="flex:1"><button class="btn" onclick="v18RcptAdd(\'alert\')">+ เพิ่ม</button></div><div style="font-size:13px;font-weight:600">รับแผนงาน</div><div id="v18rp-list"></div><div style="display:flex;gap:6px;margin:4px 0"><input id="v18rp-in" placeholder="อีเมล" style="flex:1"><button class="btn" onclick="v18RcptAdd(\'plan\')">+ เพิ่ม</button></div></div></div>';
+ main.appendChild(plan);
+ // undo floating
+ var fb=document.createElement('button'); fb.id='v18undo'; fb.onclick=window.v18Undo; fb.style.cssText='display:none;position:fixed;right:16px;bottom:16px;z-index:9998;background:#333;color:#fff;border:none;border-radius:999px;padding:12px 18px;font-size:14px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)'; document.body.appendChild(fb);
+ // nav buttons
+ var nav=document.querySelector('nav'); if(nav && !document.getElementById('t-o')){ var b1=document.createElement('button'); b1.id='t-o'; b1.className='hide'; b1.setAttribute('aria-selected','false'); b1.textContent='ภาพรวม'; b1.onclick=function(){v18tab('over');}; nav.appendChild(b1); var b2=document.createElement('button'); b2.id='t-pl'; b2.className='hide'; b2.setAttribute('aria-selected','false'); b2.textContent='วางแผนงาน'; b2.onclick=function(){v18tab('plan');}; nav.appendChild(b2); }
+}
+function v18HideBig(){ var o=document.getElementById('v18-over'), p=document.getElementById('v18-plan'); if(o)o.classList.add('hide'); if(p)p.classList.add('hide'); var to=document.getElementById('t-o'),tpl=document.getElementById('t-pl'); if(to)to.setAttribute('aria-selected','false'); if(tpl)tpl.setAttribute('aria-selected','false'); }
+window.v18tab=function(which){ ['c','d','f','p','t','m','s','u','n'].forEach(function(k){ var v=document.getElementById('v-'+k); if(v)v.classList.add('hide'); var b=document.getElementById('t-'+k); if(b)b.setAttribute('aria-selected','false'); }); v18HideBig(); try{ clearInterval(loop); if(typeof stream!=='undefined'&&stream){stream.getTracks().forEach(function(x){x.stop();});stream=null;} }catch(e){} var id=which==='over'?'v18-over':'v18-plan'; var el=document.getElementById(id); if(el)el.classList.remove('hide'); var tb=document.getElementById('t-'+(which==='over'?'o':'pl')); if(tb)tb.setAttribute('aria-selected','true'); if(which==='over'){v18RenderOver();} if(which==='plan'){v18RenderPlan(); v18RcptRender();} };
+try{ var _v18origTab=window.tab; window.tab=function(t){ _v18origTab(t); v18HideBig(); }; }catch(e){}
+
+function v18Init(){ try{ v18InjectViews(); }catch(e){console.error('v18 views',e);} try{ v18ApplyPerms(); }catch(e){} }
+try{ var _v18oa=all; all=function(){ var r=_v18oa.apply(this,arguments); try{ if(document.getElementById('v18-over')&&!document.getElementById('v18-over').classList.contains('hide'))v18RenderOver(); v18RcptRender(); v18ApplyPerms(); }catch(e){} return r; }; }catch(e){}
+try{ setInterval(function(){ try{v18ApplyPerms();}catch(e){} }, 4000); }catch(e){}
+if(document.readyState!=='loading'){ try{v18Init();}catch(e){console.error(e);} } else { document.addEventListener('DOMContentLoaded',function(){try{v18Init();}catch(e){console.error(e);}}); }
 
 </script>
 </body>
