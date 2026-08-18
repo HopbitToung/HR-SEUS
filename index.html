@@ -2574,6 +2574,70 @@ try{ document.addEventListener('change', function(e){ if(e.target && e.target.id
 try{ setInterval(function(){ try{ if(document.getElementById('v16list')&&!document.getElementById('v20selbar'))v20Init(); }catch(e){} }, 2000); }catch(e){}
 if(document.readyState!=='loading'){ try{v20Init();}catch(e){} } else { document.addEventListener('DOMContentLoaded',function(){try{v20Init();}catch(e){}}); }
 
+
+
+/* ═══════════════ HR-SEUS v21 ═══════════════ */
+/* #1 จำรายชื่อเข้างานเมื่อวาน (ติ๊กไว้ให้)  #2 ตัดคนลาออกจากลิสต์
+   #3 ย้ายโครงการแบบ 2 ช่อง  #4 แก้เวลาเข้า-ออก หลายคนพร้อมกัน */
+
+function v21OnLeave(code){ return !!(typeof v17LeaveOf==='function' && v17LeaveOf(code, dstr(new Date()))); }
+function v21PrevInSet(pid){ var t=dstr(new Date()); var byDate={}; for(var i=0;i<PUNCH.length;i++){ var p=PUNCH[i]; if(p.projectId===pid && p.type==='in' && (p.date||'')<t){ (byDate[p.date]=byDate[p.date]||{})[p.code]=1; } } var ds=Object.keys(byDate).sort(); if(!ds.length)return {date:null,set:{}}; var last=ds[ds.length-1]; return {date:last,set:byDate[last]}; }
+
+var v21InProj=null;
+v16FillList=function(){
+  var box=document.getElementById('v16list'); if(!box)return;
+  var chk={}; [].slice.call(box.querySelectorAll('.v16c:checked')).forEach(function(x){chk[x.value]=1;});
+  var pid=(document.getElementById('v16proj')||{}).value||'';
+  var emps=EMP.filter(function(e){ return !v21OnLeave(e.code); });   /* #2 ตัดคนลา */
+  var prev={date:null,set:{}}, fresh=false;
+  if(v16Action==='in' && pid){ prev=v21PrevInSet(pid); if(pid!==v21InProj){ fresh=true; v21InProj=pid; } } else { v21InProj=null; }
+  var rows=emps.filter(function(e){ if(!v16Eligible(e.code,v16Action))return false; if(v16Action==='out'&&pid){ return v20OpenProj(e.code)===pid; } return true; });
+  rows.sort(function(a,b){ var pa=(v16Action==='in'&&prev.set[a.code])?0:1, pb=(v16Action==='in'&&prev.set[b.code])?0:1; if(pa!==pb)return pa-pb; return (a.name||'').localeCompare(b.name||'','th'); });
+  box.innerHTML=rows.map(function(e){
+    var isPrev=(v16Action==='in'&&prev.set[e.code]);
+    var checked = chk[e.code] || (fresh && isPrev);          /* #1 ติ๊กคนเมื่อวานให้ */
+    var s=v16Status(e.code), badge='';
+    if(v16Action==='out'){ var op=v20OpenProj(e.code); var pr=PROJ.find(function(p){return p.id===op;}); badge='<span style="color:#2e9e5b;font-size:12px">เข้า '+(s.inTime||'')+(pr?(' · '+esc(pr.name)):'')+'</span>'; }
+    else if(isPrev){ badge='<span style="background:#e7f0ff;color:#2456b8;border-radius:6px;padding:1px 7px;font-size:11px">เข้าเมื่อวาน</span>'; }
+    else if(s.hasIn){ badge='<span style="color:#2e9e5b;font-size:12px">เข้า '+s.inTime+'</span>'; }
+    return '<label style="display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid rgba(0,0,0,.06)"><input type="checkbox" class="v16c" value="'+e.code+'"'+(checked?' checked':'')+'><span style="flex:1">'+esc(e.name||e.code)+'</span>'+badge+'<span style="opacity:.5;font-size:12px">'+esc(e.pos||'')+'</span></label>';
+  }).join('')||'<p style="opacity:.6;padding:8px">ไม่มีชื่อที่ต้อง'+(v16Action==='in'?'เข้างาน':'ออกงาน')+((v16Action==='out'&&pid)?' ในโครงการนี้':'')+' แล้ว</p>';
+  var c=document.getElementById('v16count'); if(c)c.textContent='แสดง '+rows.length+' คน'+(prev.date?(' · เข้าเมื่อวาน '+Object.keys(prev.set).length+' คน'):'');
+};
+
+/* ═══ #3 ป็อปอัป ลา + ย้ายโครงการ (2 ช่อง) ═══ */
+window.v17Leave=function(code){ var e=EMP.find(function(x){return x.code===code;}); if(!e)return; var t=dstr(new Date()); var cur=v17LeaveOf(code,t); var stats=v17Stats(code); var last=v18LastPunch(code); var curPid=last?(last.projectId||''):'';
+ var m=document.getElementById('v17modal'); if(!m){ m=document.createElement('div'); m.id='v17modal'; m.className='v13-overlay hide'; document.body.appendChild(m); }
+ var projBlock;
+ if(last){ var openTxt=(last.type==='in'?'เข้างานอยู่':'ออกงานแล้ว'); var mv=isAdmin()?('<div style="margin-top:8px;display:grid;gap:6px"><label style="font-size:12px;color:#666">โครงการปัจจุบัน</label><select id="v21cur">'+v18ProjOptions(curPid)+'</select><label style="font-size:12px;color:#666">ย้ายไปโครงการ</label><select id="v21to"><option value="">— เลือกโครงการปลายทาง —</option>'+v18ProjOptions('')+'</select><button type="button" class="btn go" onclick="v21DoMove(\''+code+'\')">ย้ายโครงการ</button></div>'):''; projBlock='<div style="margin:8px 0;padding:10px;border:1px solid rgba(0,0,0,.12);border-radius:8px"><div style="font-size:12px;color:#666">วันนี้: '+openTxt+' · '+esc(last.projectName||'-')+' · '+last.time+'</div>'+mv+'</div>'; }
+ else projBlock='<div style="margin:8px 0;font-size:12px;color:#999">วันนี้ยังไม่มีการลงเวลา</div>';
+ var opts=V17_LEAVE_TYPES.map(function(o){ var on=cur?(cur.type===o.v):(o.v==='present'); return '<button type="button" onclick="v18SetLeave(\''+code+'\',\''+o.v+'\')" style="display:block;width:100%;text-align:left;margin:4px 0;padding:11px 12px;border:1px solid '+(on?'#3377cc':'rgba(0,0,0,.15)')+';border-radius:8px;background:'+(on?'#eef4fe':'#fff')+';cursor:pointer;min-height:44px">'+esc(o.l)+(o.legal?'<div style="font-size:11px;color:#666">'+esc(o.legal)+'</div>':'')+'</button>'; }).join('');
+ var statRows=V17_LEAVE_TYPES.filter(function(o){return o.v!=='present'&&o.v!=='other';}).map(function(o){ return '<tr><td>'+esc(o.l)+'</td><td style="text-align:right">'+(stats[o.v]||0)+' วัน</td></tr>'; }).join('');
+ m.innerHTML='<div class="v13-modal"><h3>'+esc(e.name)+'</h3><div style="font-size:12px;color:#666">วันที่ '+t+(cur?(' · ลา: '+esc(v17TypeLabel(cur.type))):'')+'</div>'+projBlock+'<h4 style="margin:12px 0 4px">ขาด / ลา</h4>'+opts+'<input id="v17note" placeholder="หมายเหตุ (ไม่บังคับ)" style="width:100%;margin-top:6px" value="'+(cur?esc(cur.note||''):'')+'"><h4 style="margin:14px 0 6px">สถิติการลาปี '+((new Date()).getFullYear())+'</h4><table class="fp-table"><tbody>'+statRows+'</tbody></table><div style="margin-top:12px;text-align:right"><button type="button" onclick="v17Close()">ปิด</button></div></div>';
+ m.classList.remove('hide'); };
+window.v21DoMove=async function(code){ var curSel=(document.getElementById('v21cur')||{}).value||''; var to=(document.getElementById('v21to')||{}).value||''; if(!to){alert('เลือกโครงการปลายทางก่อน');return;} if(to===curSel){alert('โครงการปลายทางซ้ำกับปัจจุบัน');return;} var np=PROJ.find(function(p){return p.id===to;}); var t=dstr(new Date()); var ps=PUNCH.filter(function(p){return p.code===code && p.date===t && (!curSel||p.projectId===curSel);}); if(!ps.length){alert('วันนี้ไม่มีการลงเวลาในโครงการปัจจุบันที่เลือก');return;} var olds=ps.map(function(p){return {id:p.id,pid:p.projectId,pn:p.projectName};}); for(var i=0;i<ps.length;i++){ await setDoc(doc(db,'punches',ps[i].id),{projectId:np.id,projectName:np.name},{merge:true}); } if(typeof v18SetUndo==='function')v18SetUndo('ย้ายโครงการ '+(EMP.find(function(x){return x.code===code;})||{}).name+' ('+ps.length+' รายการ)', async function(){ for(var i=0;i<olds.length;i++){ await setDoc(doc(db,'punches',olds[i].id),{projectId:olds[i].pid,projectName:olds[i].pn},{merge:true}); } }); try{toast('ok','ย้ายไป '+np.name+' ('+ps.length+' รายการ)');}catch(e){} v17Close(); };
+
+/* ═══ #4 แก้เวลาเข้า-ออก หลายคนพร้อมกัน ═══ */
+function v21ParseMin(hhmm){ var a=(hhmm||'').split(':'); return (a.length>=2)?(parseInt(a[0],10)*60+parseInt(a[1],10)):null; }
+window.v21BulkAll=function(on){ [].slice.call(document.querySelectorAll('#v21blist .v21bc')).forEach(function(x){x.checked=on;}); };
+window.v21BulkClose=function(){ var m=document.getElementById('v21bulk'); if(m)m.classList.add('hide'); };
+window.v21BulkOpen=function(){ var m=document.getElementById('v21bulk'); if(!m){ m=document.createElement('div'); m.id='v21bulk'; m.className='v13-overlay hide'; document.body.appendChild(m); } var emps=EMP.slice().sort(function(a,b){return (a.name||'').localeCompare(b.name||'','th');});
+ m.innerHTML='<div class="v13-modal"><h3>แก้เวลาเข้า-ออก หลายคน</h3>'+
+ '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0"><label style="font-size:13px">วันที่<br><input type="date" id="v21bdate" value="'+dstr(new Date())+'"></label><label style="font-size:13px">โครงการ<br><select id="v21bproj">'+v18ProjOptions('')+'</select></label></div>'+
+ '<div style="display:flex;gap:8px;margin:6px 0"><label style="font-size:13px">เวลาเข้า<br><input type="time" id="v21bin"></label><label style="font-size:13px">เวลาออก<br><input type="time" id="v21bout"></label></div>'+
+ '<div style="font-size:12px;color:#888">เว้นว่างช่องเวลาที่ไม่ต้องแก้ · เลือกได้ทั้งเข้าอย่างเดียว/ออกอย่างเดียว/ทั้งคู่</div>'+
+ '<div style="display:flex;gap:8px;margin:8px 0"><button type="button" class="btn" onclick="v21BulkAll(true)">เลือกทั้งหมด</button><button type="button" class="btn" onclick="v21BulkAll(false)">ยกเลิก</button></div>'+
+ '<div id="v21blist" style="max-height:300px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:8px">'+emps.map(function(e){return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #f5f5f9"><input type="checkbox" class="v21bc" value="'+e.code+'"><span style="flex:1">'+esc(e.name)+'</span><span style="opacity:.5;font-size:12px">'+esc(e.pos||'')+'</span></label>';}).join('')+'</div>'+
+ '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end"><button type="button" onclick="v21BulkClose()">ปิด</button><button type="button" class="btn go" onclick="v21BulkApply()">บันทึกเวลา</button></div></div>';
+ m.classList.remove('hide'); };
+async function v21Upsert(e,type,date,hhmm,pr){ var min=v21ParseMin(hhmm); var ex=null; for(var i=0;i<PUNCH.length;i++){ var p=PUNCH[i]; if(p.code===e.code && p.date===date && p.type===type){ ex=p; break; } } if(ex&&ex.id){ await setDoc(doc(db,'punches',ex.id),{time:hhmm,min:min,projectId:pr.id,projectName:pr.name,backdated:true},{merge:true}); } else { await addDoc(collection(db,'punches'),{code:e.code,name:e.name,type:type,date:date,time:hhmm,min:min,projectId:pr.id,projectName:pr.name,lat:null,lng:null,acc:null,distanceM:null,insideGeofence:null,declared:true,method:'bulkedit',backdated:true,selfie:null,ts:serverTimestamp(),by:uid}); } }
+window.v21BulkApply=async function(){ var date=(document.getElementById('v21bdate')||{}).value; var pid=(document.getElementById('v21bproj')||{}).value; var inT=(document.getElementById('v21bin')||{}).value; var outT=(document.getElementById('v21bout')||{}).value; if(!date){alert('เลือกวันที่');return;} if(!inT&&!outT){alert('ใส่เวลาเข้า หรือ เวลาออก อย่างน้อยหนึ่งช่อง');return;} var pr=PROJ.find(function(p){return p.id===pid;})||{id:pid,name:''}; var codes=[].slice.call(document.querySelectorAll('#v21blist .v21bc:checked')).map(function(x){return x.value;}); if(!codes.length){alert('เลือกรายชื่อ');return;} if(!confirm('บันทึกเวลาให้ '+codes.length+' คน · วันที่ '+date+(inT?(' · เข้า '+inT):'')+(outT?(' · ออก '+outT):'')+' ?'))return; var n=0; for(var i=0;i<codes.length;i++){ var e=EMP.find(function(x){return x.code===codes[i];}); if(!e)continue; if(inT)await v21Upsert(e,'in',date,inT,pr); if(outT)await v21Upsert(e,'out',date,outT,pr); n++; } try{toast('ok','บันทึกเวลา '+n+' คน');}catch(e){} v21BulkClose(); };
+
+/* ปุ่ม "แก้เวลาหลายคน" ในหน้าภาพรวม */
+function v21Init(){ var over=document.getElementById('v18-over'); if(over && !document.getElementById('v21bulkbtn')){ var hd=over.querySelector('.head'); var right=hd?hd.lastElementChild:null; if(right){ var b=document.createElement('button'); b.id='v21bulkbtn'; b.className='btn'; b.textContent='แก้เวลาหลายคน'; b.onclick=window.v21BulkOpen; right.appendChild(b); } } }
+try{ setInterval(v21Init, 2500); }catch(e){}
+if(document.readyState!=='loading'){ try{v21Init();}catch(e){} } else { document.addEventListener('DOMContentLoaded',function(){try{v21Init();}catch(e){}}); }
+
 </script>
 </body>
 </html>
